@@ -2,5 +2,12 @@
   "type": "module",
   "scripts": {
     "start": "node jobber-mcp.js"
-  }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "dotenv": "^18.0.1",
+    "express": "^5.2.1"
+  },
+  "name": "spark-jobber-server",
+  "version": "1.0.0"
 }
