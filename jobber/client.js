@@ -90,9 +90,10 @@ export const GET_INVOICE = `
   }
 `;
 
+// Jobber's current schema uses expenseCreate(input: ...) — not the older `expense:` arg
 export const CREATE_EXPENSE = `
-  mutation CreateExpense($expense: ExpenseCreateAttributes!) {
-    expenseCreate(expense: $expense) {
+  mutation CreateExpense($input: ExpenseCreateInput!) {
+    expenseCreate(input: $input) {
       expense {
         id
         title
@@ -118,16 +119,16 @@ export async function getInvoice(invoiceId) {
 }
 
 export async function createExpense({ amount, description, title, date, linkedJobId }) {
-  const expense = {
+  const input = {
     title: title || description.slice(0, 80),
     description,
     total: amount,
     date: date || new Date().toISOString(),
   };
 
-  if (linkedJobId) expense.linkedJobId = linkedJobId;
+  if (linkedJobId) input.linkedJobId = linkedJobId;
 
-  const data = await jobberGraphql(CREATE_EXPENSE, { expense });
+  const data = await jobberGraphql(CREATE_EXPENSE, { input });
   const result = data?.expenseCreate;
 
   if (result?.userErrors?.length) {
