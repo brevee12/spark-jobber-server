@@ -12,9 +12,14 @@ function requireConfig() {
   const clientSecret = process.env.JOBBER_CLIENT_SECRET;
   const redirectUri = process.env.JOBBER_REDIRECT_URI;
 
-  if (!clientId || !clientSecret || !redirectUri) {
+  const missing = [];
+  if (!clientId) missing.push('JOBBER_CLIENT_ID');
+  if (!clientSecret) missing.push('JOBBER_CLIENT_SECRET');
+  if (!redirectUri) missing.push('JOBBER_REDIRECT_URI');
+
+  if (missing.length) {
     throw new Error(
-      'Missing JOBBER_CLIENT_ID, JOBBER_CLIENT_SECRET, or JOBBER_REDIRECT_URI in .env'
+      `Missing env var(s): ${missing.join(', ')}. Set them in Render → Environment, then redeploy.`
     );
   }
 
