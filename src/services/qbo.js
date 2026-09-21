@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { readJson, writeJson, deleteJson } from '../lib/jsonStore.js';
+import { persistEnvVars } from '../lib/durableTokens.js';
 
 const TOKEN_FILE = '.qbo-tokens.json';
 const AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
@@ -63,11 +64,25 @@ export function saveQboTokens(tokens) {
     environment: environment(),
   };
   writeJson(TOKEN_FILE, payload);
-  return payload;
+
+  // Fire durable sync; callers that await refresh already use async paths
+  return persistEnvVars({
+    QBO_ACCESS_TOKEN: payload.accessToken,
+    QBO_REFRESH_TOKEN: payload.refreshToken,
+    QBO_REALM_ID: payload.realmId,
+    QBO_EXPIRES_AT: payload.expiresAt,
+  }).then((sync) => {
+    payload.durableSync = sync;
+    return payload;
+  });
 }
 
 export function clearQboTokens() {
   deleteJson(TOKEN_FILE);
+  delete process.env.QBO_ACCESS_TOKEN;
+  delete process.env.QBO_REFRESH_TOKEN;
+  delete process.env.QBO_REALM_ID;
+  delete process.env.QBO_EXPIRES_AT;
 }
 
 export function hasQboTokens() {

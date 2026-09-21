@@ -17,6 +17,7 @@ import {
   claimSetupToken,
   getAccessUrl,
 } from './src/services/simplefin.js';
+import { durableSyncConfigured } from './src/lib/durableTokens.js';
 
 const app = express();
 app.use(express.json());
@@ -62,15 +63,21 @@ app.get('/health', (_req, res) => {
     qboConnected: hasQboTokens(),
     simplefinConfigured: hasSimpleFinAccess(),
     simplefinAccessUrlSaved: Boolean(getAccessUrl()),
+    durableTokenSync: durableSyncConfigured(),
     env: {
       JOBBER_CLIENT_ID: Boolean(process.env.JOBBER_CLIENT_ID),
       JOBBER_CLIENT_SECRET: Boolean(process.env.JOBBER_CLIENT_SECRET),
       JOBBER_REDIRECT_URI: Boolean(process.env.JOBBER_REDIRECT_URI),
+      JOBBER_REFRESH_TOKEN: Boolean(process.env.JOBBER_REFRESH_TOKEN),
       QBO_CLIENT_ID: Boolean(process.env.QBO_CLIENT_ID),
       QBO_CLIENT_SECRET: Boolean(process.env.QBO_CLIENT_SECRET),
       QBO_REDIRECT_URI: Boolean(process.env.QBO_REDIRECT_URI),
+      QBO_REFRESH_TOKEN: Boolean(process.env.QBO_REFRESH_TOKEN),
+      QBO_REALM_ID: Boolean(process.env.QBO_REALM_ID),
       SIMPLEFIN_SETUP_TOKEN: Boolean(process.env.SIMPLEFIN_SETUP_TOKEN),
       SIMPLEFIN_ACCESS_URL: Boolean(process.env.SIMPLEFIN_ACCESS_URL),
+      RENDER_API_KEY: Boolean(process.env.RENDER_API_KEY),
+      RENDER_SERVICE_ID: Boolean(process.env.RENDER_SERVICE_ID),
     },
   });
 });
@@ -168,8 +175,17 @@ app.get('/oauth/callback', async (req, res) => {
     return;
   }
   try {
-    await exchangeCodeForTokens(String(code), String(state));
-    res.send('Jobber connected. Tokens saved. You can close this tab.');
+    const saved = await exchangeCodeForTokens(String(code), String(state));
+    const syncNote = saved?.durableSync?.synced
+      ? 'Tokens also synced to Render env (survives deploys).'
+      : 'Tip: set RENDER_API_KEY + RENDER_SERVICE_ID so tokens survive deploys automatically.';
+    res.type('html').send(
+      `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:36rem;margin:2rem auto;padding:0 1rem">
+      <h1>Jobber connected</h1>
+      <p>Tokens saved. You can close this tab.</p>
+      <p><small>${syncNote}</small></p>
+      </body></html>`
+    );
   } catch (err) {
     res.status(500).send(`Token exchange failed: ${err.message}`);
   }
@@ -200,13 +216,20 @@ app.get('/qbo/callback', async (req, res) => {
     return;
   }
   try {
-    await exchangeQboCode({
+    const saved = await exchangeQboCode({
       code: String(code),
       state: String(state),
       realmId: realmId ? String(realmId) : null,
     });
-    res.send(
-      'QuickBooks connected. Tokens saved. You can close this tab and use QBO MCP tools.'
+    const syncNote = saved?.durableSync?.synced
+      ? 'Tokens also synced to Render env (survives deploys).'
+      : 'Tip: set RENDER_API_KEY + RENDER_SERVICE_ID so tokens survive deploys automatically.';
+    res.type('html').send(
+      `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:36rem;margin:2rem auto;padding:0 1rem">
+      <h1>QuickBooks connected</h1>
+      <p>Tokens saved. You can close this tab and use QBO MCP tools.</p>
+      <p><small>${syncNote}</small></p>
+      </body></html>`
     );
   } catch (err) {
     res.status(500).send(`QBO token exchange failed: ${err.message}`);
