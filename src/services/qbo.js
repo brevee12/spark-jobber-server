@@ -556,3 +556,129 @@ export async function getQboProfitAndLoss({ startDate, endDate } = {}) {
     rows: data?.Rows || null,
   };
 }
+
+/**
+ * Transfer funds between QBO accounts (CC payment, LOC draw/paydown, etc.).
+ */
+export async function postQboTransfer({
+  fromAccountId,
+  toAccountId,
+  amount,
+  txnDate,
+  memo,
+}) {
+  const tokens = await getValidAccessToken();
+  if (!fromAccountId) throw new Error('fromAccountId is required');
+  if (!toAccountId) throw new Error('toAccountId is required');
+  if (amount == null || Number.isNaN(Number(amount))) {
+    throw new Error('amount is required');
+  }
+
+  const payload = {
+    FromAccountRef: { value: String(fromAccountId) },
+    ToAccountRef: { value: String(toAccountId) },
+    Amount: Number(amount),
+    TxnDate: txnDate || new Date().toISOString().slice(0, 10),
+    PrivateNote: memo || undefined,
+  };
+
+  const data = await qboRequest(
+    'POST',
+    `/v3/company/${tokens.realmId}/transfer`,
+    { body: payload }
+  );
+
+  const transfer = data?.Transfer;
+  return {
+    id: transfer?.Id,
+    syncToken: transfer?.SyncToken,
+    amount: transfer?.Amount,
+    txnDate: transfer?.TxnDate,
+    fromAccountId: transfer?.FromAccountRef?.value || String(fromAccountId),
+    toAccountId: transfer?.ToAccountRef?.value || String(toAccountId),
+    status: transfer?.Id ? 'created' : 'unknown',
+  };
+}
+
+const DELETEABLE_TYPES = {
+  purchase: 'purchase',
+  deposit: 'deposit',
+};
+
+/**
+ * Delete a QBO Purchase or Deposit (fetches SyncToken first).
+ */
+export async function deleteQboTransaction({ transactionId, transactionType }) {
+  const tokens = await getValidAccessToken();
+  if (!transactionId) throw new Error('transactionId is required');
+
+  const typeKey = String(transactionType || '').toLowerCase();
+  const entity = DELETEABLE_TYPES[typeKey];
+  if (!entity) {
+    throw new Error("transactionType must be 'purchase' or 'deposit'");
+  }
+
+  const read = await qboRequest(
+    'GET',
+    `/v3/company/${tokens.realmId}/${entity}/${transactionId}`
+  );
+
+  const entityKey = entity.charAt(0).toUpperCase() + entity.slice(1);
+  const current = read?.[entityKey];
+  if (!current?.Id || current.SyncToken == null) {
+    throw new Error(`Could not load ${entity} ${transactionId} for delete (missing SyncToken)`);
+  }
+
+  const data = await qboRequest(
+    'POST',
+    `/v3/company/${tokens.realmId}/${entity}`,
+    {
+      query: { operation: 'delete' },
+      body: {
+        Id: String(current.Id),
+        SyncToken: String(current.SyncToken),
+      },
+    }
+  );
+
+  const deleted = data?.[entityKey];
+  return {
+    id: deleted?.Id || String(transactionId),
+    transactionType: typeKey,
+    status: deleted?.status || 'Deleted',
+  };
+}
+
+/**
+ * List active QBO accounts, optionally filtered by name text and/or accountType.
+ */
+export async function getQboAccounts({ filter, accountType } = {}) {
+  const qr = await qboQuery(
+    'SELECT Id, Name, AccountType, AccountSubType, CurrentBalance, CurrentBalanceWithSubAccounts, Active FROM Account WHERE Active = true MAXRESULTS 1000'
+  );
+
+  let accounts = qr.Account || [];
+
+  if (accountType) {
+    const t = String(accountType).toLowerCase();
+    accounts = accounts.filter(
+      (a) =>
+        String(a.AccountType || '').toLowerCase() === t ||
+        String(a.AccountSubType || '').toLowerCase() === t ||
+        String(a.AccountType || '').toLowerCase().includes(t)
+    );
+  }
+
+  if (filter) {
+    const f = String(filter).toLowerCase();
+    accounts = accounts.filter((a) => String(a.Name || '').toLowerCase().includes(f));
+  }
+
+  return accounts.map((a) => ({
+    id: a.Id,
+    name: a.Name,
+    accountType: a.AccountType,
+    accountSubType: a.AccountSubType,
+    balance: a.CurrentBalanceWithSubAccounts ?? a.CurrentBalance ?? null,
+  }));
+}

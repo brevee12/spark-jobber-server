@@ -1,4 +1,4 @@
-import { getInvoice, createExpense } from '../../jobber/client.js';
+import { getInvoice, createExpense, searchJobs } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
   markTransactionsProcessed,
@@ -7,6 +7,9 @@ import {
   getSherwinWilliamsBills,
   postQboExpense,
   postQboDeposit,
+  postQboTransfer,
+  deleteQboTransaction,
+  getQboAccounts,
   getQboCashSummary,
   getQboProfitAndLoss,
 } from '../services/qbo.js';
@@ -59,6 +62,28 @@ export const toolDefinitions = [
         },
       },
       required: ['amount', 'description'],
+    },
+  },
+  {
+    name: 'jobber_search_jobs',
+    description:
+      'Search Jobber jobs by job number or free-text query; returns jobId, jobNumber, title, clientName, status',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jobNumber: {
+          type: 'string',
+          description: 'Job number to match (preferred when known)',
+        },
+        query: {
+          type: 'string',
+          description: 'Free-text search (client name, title, etc.)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results (default 25, max 50)',
+        },
+      },
     },
   },
   {
@@ -157,6 +182,66 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'qbo_create_transfer',
+    description:
+      'Transfer funds between QuickBooks accounts (credit card payments, LOC draws/paydowns)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromAccountId: {
+          type: 'string',
+          description: 'QBO Account Id money leaves',
+        },
+        toAccountId: {
+          type: 'string',
+          description: 'QBO Account Id money enters',
+        },
+        amount: { type: 'number', description: 'Transfer amount' },
+        txnDate: { type: 'string', description: 'YYYY-MM-DD (optional)' },
+        memo: { type: 'string', description: 'Memo / private note' },
+      },
+      required: ['fromAccountId', 'toAccountId', 'amount'],
+    },
+  },
+  {
+    name: 'qbo_delete_transaction',
+    description:
+      'Delete a QuickBooks Purchase or Deposit by Id (loads SyncToken then posts operation=delete)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        transactionId: {
+          type: 'string',
+          description: 'QBO transaction Id',
+        },
+        transactionType: {
+          type: 'string',
+          description: "'purchase' or 'deposit'",
+        },
+      },
+      required: ['transactionId', 'transactionType'],
+    },
+  },
+  {
+    name: 'qbo_get_accounts',
+    description:
+      'List active QuickBooks accounts (id, name, type, subtype, balance), optionally filtered',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filter: {
+          type: 'string',
+          description: 'Optional case-insensitive name substring',
+        },
+        accountType: {
+          type: 'string',
+          description:
+            "Optional AccountType / subtype filter (e.g. 'Bank', 'Credit Card', 'Expense')",
+        },
+      },
+    },
+  },
+  {
     name: 'qbo_get_cash_balances',
     description:
       'Live QBO balances for Marion County checking, LOC, and Capital One credit cards',
@@ -196,6 +281,15 @@ export async function callTool(name, args = {}) {
           linkedJobId: args.linked_job_id,
         });
         return ok(expense);
+      }
+
+      case 'jobber_search_jobs': {
+        const jobs = await searchJobs({
+          jobNumber: args.jobNumber,
+          query: args.query,
+          limit: args.limit,
+        });
+        return ok({ count: jobs.length, jobs });
       }
 
       case 'bank_feed_fetch': {
@@ -243,6 +337,33 @@ export async function callTool(name, args = {}) {
           memo: args.memo,
         });
         return ok(deposit);
+      }
+
+      case 'qbo_create_transfer': {
+        const transfer = await postQboTransfer({
+          fromAccountId: args.fromAccountId,
+          toAccountId: args.toAccountId,
+          amount: args.amount,
+          txnDate: args.txnDate,
+          memo: args.memo,
+        });
+        return ok(transfer);
+      }
+
+      case 'qbo_delete_transaction': {
+        const deleted = await deleteQboTransaction({
+          transactionId: args.transactionId,
+          transactionType: args.transactionType,
+        });
+        return ok(deleted);
+      }
+
+      case 'qbo_get_accounts': {
+        const accounts = await getQboAccounts({
+          filter: args.filter,
+          accountType: args.accountType,
+        });
+        return ok({ count: accounts.length, accounts });
       }
 
       case 'qbo_get_cash_balances': {
