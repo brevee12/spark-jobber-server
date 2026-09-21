@@ -378,6 +378,88 @@ export async function postQboExpense({
   };
 }
 
+/**
+ * Create a QBO Bank Deposit (incoming funds: owner loans, refunds, non-invoice income).
+ * depositAccountId = bank/checking receiving the money
+ * sourceAccountId  = equity/liability/income account the money comes from (e.g. Loan from Shareholder)
+ */
+export async function postQboDeposit({
+  depositAccountId,
+  sourceAccountId,
+  amount,
+  txnDate,
+  payeeName,
+  memo,
+}) {
+  const tokens = await getValidAccessToken();
+  if (!depositAccountId) throw new Error('depositAccountId is required');
+  if (!sourceAccountId) throw new Error('sourceAccountId is required');
+  if (amount == null || Number.isNaN(Number(amount))) {
+    throw new Error('amount is required');
+  }
+
+  const lineDetail = {
+    AccountRef: { value: String(sourceAccountId) },
+  };
+
+  if (payeeName) {
+    const safe = String(payeeName).replace(/'/g, "\\'");
+    const vendors = await qboQuery(
+      `SELECT Id, DisplayName FROM Vendor WHERE DisplayName = '${safe}' MAXRESULTS 1`
+    );
+    const vendor = vendors.Vendor?.[0];
+    if (vendor?.Id) {
+      lineDetail.Entity = {
+        value: String(vendor.Id),
+        name: vendor.DisplayName,
+        type: 'VENDOR',
+      };
+    } else {
+      const customers = await qboQuery(
+        `SELECT Id, DisplayName FROM Customer WHERE DisplayName = '${safe}' MAXRESULTS 1`
+      );
+      const customer = customers.Customer?.[0];
+      if (customer?.Id) {
+        lineDetail.Entity = {
+          value: String(customer.Id),
+          name: customer.DisplayName,
+          type: 'CUSTOMER',
+        };
+      }
+    }
+  }
+
+  const payload = {
+    DepositToAccountRef: { value: String(depositAccountId) },
+    TxnDate: txnDate || new Date().toISOString().slice(0, 10),
+    PrivateNote: memo || undefined,
+    Line: [
+      {
+        Amount: Number(amount),
+        DetailType: 'DepositLineDetail',
+        Description: memo || payeeName || undefined,
+        DepositLineDetail: lineDetail,
+      },
+    ],
+  };
+
+  const data = await qboRequest(
+    'POST',
+    `/v3/company/${tokens.realmId}/deposit`,
+    { body: payload }
+  );
+
+  const deposit = data?.Deposit;
+  return {
+    id: deposit?.Id,
+    syncToken: deposit?.SyncToken,
+    totalAmt: deposit?.TotalAmt,
+    txnDate: deposit?.TxnDate,
+    depositToAccountId: deposit?.DepositToAccountRef?.value || String(depositAccountId),
+    status: deposit?.Id ? 'created' : 'unknown',
+  };
+}
+
 async function findAccountsByNames(names) {
   const qr = await qboQuery('SELECT Id, Name, AccountType, AccountSubType, CurrentBalance, Active FROM Account MAXRESULTS 1000');
   const accounts = qr.Account || [];

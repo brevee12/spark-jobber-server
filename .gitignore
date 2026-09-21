@@ -4,3 +4,4 @@ node_modules/
 .qbo-tokens.json
 .simplefin-access.json
 .simplefin-processed.json
+.simplefin-setup.tmp

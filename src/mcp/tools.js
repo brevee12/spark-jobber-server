@@ -6,6 +6,7 @@ import {
 import {
   getSherwinWilliamsBills,
   postQboExpense,
+  postQboDeposit,
   getQboCashSummary,
   getQboProfitAndLoss,
 } from '../services/qbo.js';
@@ -129,6 +130,33 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'qbo_create_deposit',
+    description:
+      'Create a QuickBooks Bank Deposit for incoming funds (owner loans, refunds, non-invoice income). Credits the deposit (bank) account from a source account such as Loan from Shareholder.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        depositAccountId: {
+          type: 'string',
+          description: 'QBO bank/checking Account Id receiving the deposit',
+        },
+        sourceAccountId: {
+          type: 'string',
+          description:
+            'QBO source Account Id (e.g. Loan from Shareholder, Other Income)',
+        },
+        amount: { type: 'number', description: 'Deposit amount' },
+        txnDate: { type: 'string', description: 'YYYY-MM-DD (optional)' },
+        payeeName: {
+          type: 'string',
+          description: 'Optional received-from name (Vendor or Customer)',
+        },
+        memo: { type: 'string', description: 'Memo / private note' },
+      },
+      required: ['depositAccountId', 'sourceAccountId', 'amount'],
+    },
+  },
+  {
     name: 'qbo_get_cash_balances',
     description:
       'Live QBO balances for Marion County checking, LOC, and Capital One credit cards',
@@ -203,6 +231,18 @@ export async function callTool(name, args = {}) {
           paymentType: args.paymentType,
         });
         return ok(created);
+      }
+
+      case 'qbo_create_deposit': {
+        const deposit = await postQboDeposit({
+          depositAccountId: args.depositAccountId,
+          sourceAccountId: args.sourceAccountId,
+          amount: args.amount,
+          txnDate: args.txnDate,
+          payeeName: args.payeeName,
+          memo: args.memo,
+        });
+        return ok(deposit);
       }
 
       case 'qbo_get_cash_balances': {
