@@ -1,3 +1,6 @@
 node_modules/
 .env
 .jobber-tokens.json
+.qbo-tokens.json
+.simplefin-access.json
+.simplefin-processed.json
