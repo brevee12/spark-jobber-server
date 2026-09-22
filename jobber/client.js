@@ -198,3 +198,188 @@ export async function searchJobs({ jobNumber, query, limit = 25 } = {}) {
 
   return jobs;
 }
+
+const CREATE_CLIENT = `
+  mutation CreateClient($input: ClientCreateInput!) {
+    clientCreate(input: $input) {
+      client {
+        id
+        firstName
+        lastName
+        companyName
+        name
+        isLead
+        jobberWebUri
+        createdAt
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+const CREATE_QUOTE = `
+  mutation CreateQuote($input: QuoteCreateInput!) {
+    quoteCreate(input: $input) {
+      quote {
+        id
+        quoteNumber
+        quoteStatus
+        title
+        message
+        amounts {
+          subtotal
+          total
+          depositAmount
+        }
+        client {
+          id
+          name
+        }
+        createdAt
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+const CREATE_QUOTE_LINE_ITEMS = `
+  mutation AddQuoteLineItems($quoteId: EncodedId!, $lineItems: QuoteCreateLineItemsAttributes!) {
+    quoteCreateLineItems(quoteId: $quoteId, lineItems: $lineItems) {
+      lineItems {
+        id
+        name
+        description
+        quantity
+        unitPrice
+        totalPrice
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+/**
+ * Create a Jobber client (person or company).
+ */
+export async function createClient({
+  firstName,
+  lastName,
+  companyName,
+  isCompany,
+  isLead,
+  email,
+  phone,
+  note,
+  billingAddress,
+} = {}) {
+  const input = {};
+
+  if (firstName) input.firstName = firstName;
+  if (lastName) input.lastName = lastName;
+  if (companyName) input.companyName = companyName;
+  if (typeof isCompany === 'boolean') input.isCompany = isCompany;
+  else if (companyName && !firstName && !lastName) input.isCompany = true;
+  if (typeof isLead === 'boolean') input.isLead = isLead;
+  if (note) input.note = note;
+
+  if (email) {
+    input.emails = [
+      { address: String(email), primary: true, description: 'MAIN' },
+    ];
+  }
+
+  if (phone) {
+    input.phones = [
+      { number: String(phone), primary: true, description: 'MAIN' },
+    ];
+  }
+
+  if (billingAddress && typeof billingAddress === 'object') {
+    input.billingAddress = billingAddress;
+  }
+
+  if (!input.firstName && !input.lastName && !input.companyName) {
+    throw new Error('Provide at least firstName/lastName or companyName');
+  }
+
+  const data = await jobberGraphql(CREATE_CLIENT, { input });
+  const result = data?.clientCreate;
+
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+
+  return result.client;
+}
+
+/**
+ * Create a Jobber quote for a client; optionally add line items.
+ */
+export async function createQuote({
+  clientId,
+  title,
+  message,
+  depositAmount,
+  propertyId,
+  lineItems = [],
+} = {}) {
+  if (!clientId) throw new Error('clientId is required');
+
+  const input = { clientId: String(clientId) };
+  if (title) input.title = title;
+  if (message) input.message = message;
+  if (depositAmount != null) input.depositAmount = Number(depositAmount);
+  if (propertyId) input.propertyId = String(propertyId);
+
+  const data = await jobberGraphql(CREATE_QUOTE, { input });
+  const result = data?.quoteCreate;
+
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+
+  const quote = result.quote;
+  let createdLineItems = [];
+
+  if (Array.isArray(lineItems) && lineItems.length > 0) {
+    const normalized = lineItems.map((item) => {
+      const row = {
+        name: item.name || item.description || 'Line item',
+        quantity: item.quantity != null ? Number(item.quantity) : 1,
+        unitPrice: Number(item.unitPrice ?? item.price ?? 0),
+      };
+      if (item.description) row.description = item.description;
+      if (typeof item.taxable === 'boolean') row.taxable = item.taxable;
+      return row;
+    });
+
+    const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
+      quoteId: quote.id,
+      lineItems: { lineItems: normalized },
+    });
+    const lineResult = lineData?.quoteCreateLineItems;
+
+    if (lineResult?.userErrors?.length) {
+      throw new Error(
+        `Quote created (${quote.id}) but line items failed: ` +
+          lineResult.userErrors.map((e) => e.message).join('; ')
+      );
+    }
+
+    createdLineItems = lineResult?.lineItems || [];
+  }
+
+  return {
+    ...quote,
+    lineItems: createdLineItems,
+  };
+}

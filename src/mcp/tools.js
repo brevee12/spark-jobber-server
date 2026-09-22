@@ -1,4 +1,4 @@
-import { getInvoice, createExpense, searchJobs } from '../../jobber/client.js';
+import { getInvoice, createExpense, searchJobs, createClient, createQuote } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
   markTransactionsProcessed,
@@ -84,6 +84,73 @@ export const toolDefinitions = [
           description: 'Max results (default 25, max 50)',
         },
       },
+    },
+  },
+  {
+    name: 'jobber_create_client',
+    description:
+      'Create a new Jobber client (person or company) with optional email, phone, and billing address',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        firstName: { type: 'string' },
+        lastName: { type: 'string' },
+        companyName: { type: 'string' },
+        isCompany: { type: 'boolean', description: 'True for a company client' },
+        isLead: { type: 'boolean', description: 'True to mark as a lead' },
+        email: { type: 'string', description: 'Primary email address' },
+        phone: { type: 'string', description: 'Primary phone number' },
+        note: { type: 'string' },
+        billingAddress: {
+          type: 'object',
+          description: 'Optional billing address fields',
+          properties: {
+            street1: { type: 'string' },
+            street2: { type: 'string' },
+            city: { type: 'string' },
+            province: { type: 'string' },
+            postalCode: { type: 'string' },
+            country: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'jobber_create_quote',
+    description:
+      'Create a Jobber quote for a client; optionally add line items (name, quantity, unitPrice)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        clientId: {
+          type: 'string',
+          description: 'Jobber client EncodedId',
+        },
+        title: { type: 'string' },
+        message: { type: 'string', description: 'Message shown on the quote' },
+        depositAmount: { type: 'number' },
+        propertyId: {
+          type: 'string',
+          description: 'Optional property EncodedId',
+        },
+        lineItems: {
+          type: 'array',
+          description: 'Optional quote line items',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string' },
+              quantity: { type: 'number' },
+              unitPrice: { type: 'number' },
+              taxable: { type: 'boolean' },
+            },
+            required: ['name', 'unitPrice'],
+          },
+        },
+      },
+      required: ['clientId'],
     },
   },
   {
@@ -290,6 +357,33 @@ export async function callTool(name, args = {}) {
           limit: args.limit,
         });
         return ok({ count: jobs.length, jobs });
+      }
+
+      case 'jobber_create_client': {
+        const client = await createClient({
+          firstName: args.firstName,
+          lastName: args.lastName,
+          companyName: args.companyName,
+          isCompany: args.isCompany,
+          isLead: args.isLead,
+          email: args.email,
+          phone: args.phone,
+          note: args.note,
+          billingAddress: args.billingAddress,
+        });
+        return ok(client);
+      }
+
+      case 'jobber_create_quote': {
+        const quote = await createQuote({
+          clientId: args.clientId,
+          title: args.title,
+          message: args.message,
+          depositAmount: args.depositAmount,
+          propertyId: args.propertyId,
+          lineItems: args.lineItems,
+        });
+        return ok(quote);
       }
 
       case 'bank_feed_fetch': {
