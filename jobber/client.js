@@ -221,8 +221,8 @@ const CREATE_CLIENT = `
 `;
 
 const CREATE_QUOTE = `
-  mutation CreateQuote($input: QuoteCreateInput!) {
-    quoteCreate(input: $input) {
+  mutation CreateQuote($attributes: QuoteCreateAttributes!) {
+    quoteCreate(attributes: $attributes) {
       quote {
         id
         quoteNumber
@@ -340,7 +340,7 @@ export async function createQuote({
   if (depositAmount != null) input.depositAmount = Number(depositAmount);
   if (propertyId) input.propertyId = String(propertyId);
 
-  const data = await jobberGraphql(CREATE_QUOTE, { input });
+  const data = await jobberGraphql(CREATE_QUOTE, { attributes: input });
   const result = data?.quoteCreate;
 
   if (result?.userErrors?.length) {
