@@ -1,4 +1,15 @@
-import { getInvoice, createExpense, searchJobs, createClient, createQuote } from '../../jobber/client.js';
+import {
+  getInvoice,
+  createExpense,
+  deleteExpense,
+  searchJobs,
+  createClient,
+  createQuote,
+  createVisit,
+  getJob,
+  searchInvoices,
+  getQuote,
+} from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
   markTransactionsProcessed,
@@ -151,6 +162,119 @@ export const toolDefinitions = [
         },
       },
       required: ['clientId'],
+    },
+  },
+  {
+    name: 'jobber_delete_expense',
+    description:
+      'Delete a Jobber expense by EncodedId (cleanup test entries or duplicate supplier expenses)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expenseId: {
+          type: 'string',
+          description: 'Jobber expense EncodedId to delete',
+        },
+      },
+      required: ['expenseId'],
+    },
+  },
+  {
+    name: 'jobber_schedule_visit',
+    description:
+      'Schedule a visit on an existing Jobber job: start/end time, title, crew instructions, and assigned team member IDs',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jobId: {
+          type: 'string',
+          description: 'Jobber job EncodedId',
+        },
+        startAt: {
+          type: 'string',
+          description: 'Visit start time (ISO-8601)',
+        },
+        endAt: {
+          type: 'string',
+          description: 'Visit end time (ISO-8601)',
+        },
+        title: { type: 'string', description: 'Optional visit title' },
+        instructions: {
+          type: 'string',
+          description: 'Crew / field instructions for the visit',
+        },
+        assignedUserIds: {
+          type: 'array',
+          description: 'Jobber user EncodedIds to assign to the visit',
+          items: { type: 'string' },
+        },
+        allDay: {
+          type: 'boolean',
+          description: 'If true, schedule as an all-day visit',
+        },
+      },
+      required: ['jobId', 'startAt'],
+    },
+  },
+  {
+    name: 'jobber_get_job',
+    description:
+      'Fetch a full Jobber job by EncodedId, including line items, property address, client info, and scheduled visits',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jobId: {
+          type: 'string',
+          description: 'Jobber job EncodedId',
+        },
+      },
+      required: ['jobId'],
+    },
+  },
+  {
+    name: 'jobber_search_invoices',
+    description:
+      'Search/filter Jobber invoices for A/R reconciliation by client name, status, or invoice number; returns balances and payment totals',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        clientName: {
+          type: 'string',
+          description: 'Filter by client name (substring match)',
+        },
+        status: {
+          type: 'string',
+          description:
+            "Invoice status filter (e.g. 'awaiting_payment', 'past_due', 'paid', 'draft')",
+        },
+        invoiceNumber: {
+          type: 'string',
+          description: 'Invoice number to match',
+        },
+        query: {
+          type: 'string',
+          description: 'Free-text search when clientName/invoiceNumber not set',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results (default 25, max 50)',
+        },
+      },
+    },
+  },
+  {
+    name: 'jobber_get_quote',
+    description:
+      'Fetch a Jobber quote by EncodedId, including line items, deposit amounts, client, and linked jobs',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        quoteId: {
+          type: 'string',
+          description: 'Jobber quote EncodedId',
+        },
+      },
+      required: ['quoteId'],
     },
   },
   {
@@ -383,6 +507,45 @@ export async function callTool(name, args = {}) {
           propertyId: args.propertyId,
           lineItems: args.lineItems,
         });
+        return ok(quote);
+      }
+
+      case 'jobber_delete_expense': {
+        const deleted = await deleteExpense(args.expenseId);
+        return ok(deleted);
+      }
+
+      case 'jobber_schedule_visit': {
+        const visit = await createVisit({
+          jobId: args.jobId,
+          startAt: args.startAt,
+          endAt: args.endAt,
+          title: args.title,
+          instructions: args.instructions,
+          assignedUserIds: args.assignedUserIds,
+          allDay: args.allDay,
+        });
+        return ok(visit);
+      }
+
+      case 'jobber_get_job': {
+        const job = await getJob(args.jobId);
+        return ok(job);
+      }
+
+      case 'jobber_search_invoices': {
+        const result = await searchInvoices({
+          clientName: args.clientName,
+          status: args.status,
+          invoiceNumber: args.invoiceNumber,
+          query: args.query,
+          limit: args.limit,
+        });
+        return ok(result);
+      }
+
+      case 'jobber_get_quote': {
+        const quote = await getQuote(args.quoteId);
         return ok(quote);
       }
 

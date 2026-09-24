@@ -70,7 +70,7 @@ export const GET_INVOICE = `
         taxAmount
         total
         paymentsTotal
-        balance
+        invoiceBalance
       }
       client {
         id
@@ -115,7 +115,14 @@ export async function getInvoice(invoiceId) {
   if (!data?.invoice) {
     throw new Error(`Invoice not found: ${invoiceId}`);
   }
-  return data.invoice;
+  const invoice = data.invoice;
+  if (invoice.amounts) {
+    invoice.amounts = {
+      ...invoice.amounts,
+      balance: invoice.amounts.invoiceBalance ?? null,
+    };
+  }
+  return invoice;
 }
 
 export async function createExpense({ amount, description, title, date, linkedJobId }) {
@@ -381,5 +388,524 @@ export async function createQuote({
   return {
     ...quote,
     lineItems: createdLineItems,
+  };
+}
+
+const DELETE_EXPENSE = `
+  mutation DeleteExpense($expenseId: EncodedId!) {
+    expenseDelete(expenseId: $expenseId) {
+      expense {
+        id
+        title
+        description
+        total
+        date
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+/**
+ * Delete a Jobber expense by EncodedId (cleanup of test/duplicate entries).
+ */
+export async function deleteExpense(expenseId) {
+  if (!expenseId) throw new Error('expenseId is required');
+
+  const data = await jobberGraphql(DELETE_EXPENSE, {
+    expenseId: String(expenseId),
+  });
+  const result = data?.expenseDelete;
+
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+
+  return {
+    deleted: true,
+    expense: result?.expense || { id: String(expenseId) },
+  };
+}
+
+const CREATE_VISIT = `
+  mutation CreateVisit($jobId: EncodedId!, $input: VisitCreateInput!) {
+    visitCreate(jobId: $jobId, input: $input) {
+      createdVisits {
+        id
+        title
+        startAt
+        endAt
+        instructions
+        visitStatus
+        isComplete
+        allDay
+        assignedUsers(first: 25) {
+          nodes {
+            id
+            name {
+              full
+            }
+          }
+        }
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+/**
+ * Schedule a visit on an existing Jobber job (date/time, instructions, crew).
+ */
+export async function createVisit({
+  jobId,
+  startAt,
+  endAt,
+  title,
+  instructions,
+  assignedUserIds = [],
+  allDay,
+} = {}) {
+  if (!jobId) throw new Error('jobId is required');
+  if (!startAt) throw new Error('startAt is required (ISO-8601)');
+
+  const visitAttributes = {
+    schedule: {
+      startAt: { isoTimestamp: String(startAt) },
+    },
+  };
+
+  if (endAt) {
+    visitAttributes.schedule.endAt = { isoTimestamp: String(endAt) };
+  }
+  if (title) visitAttributes.title = title;
+  if (instructions) visitAttributes.instructions = instructions;
+  if (typeof allDay === 'boolean') visitAttributes.allDay = allDay;
+  if (Array.isArray(assignedUserIds) && assignedUserIds.length > 0) {
+    visitAttributes.assignedUserIds = assignedUserIds.map(String);
+  }
+
+  const data = await jobberGraphql(CREATE_VISIT, {
+    jobId: String(jobId),
+    input: {
+      visits: [visitAttributes],
+      aggregateAssignmentEmails: false,
+    },
+  });
+  const result = data?.visitCreate;
+
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+
+  const visits = result?.createdVisits || [];
+  const visit = visits[0];
+  if (!visit) throw new Error('Visit create returned no visits');
+
+  const normalize = (v) => ({
+    ...v,
+    assignedUsers: (v.assignedUsers?.nodes || []).map((u) => ({
+      id: u.id,
+      name: u.name?.full || null,
+    })),
+  });
+
+  if (visits.length === 1) return normalize(visit);
+  return visits.map(normalize);
+}
+
+const GET_JOB = `
+  query GetJob($id: EncodedId!) {
+    job(id: $id) {
+      id
+      jobNumber
+      title
+      jobStatus
+      jobType
+      instructions
+      total
+      invoicedTotal
+      uninvoicedTotal
+      startAt
+      endAt
+      completedAt
+      createdAt
+      updatedAt
+      jobberWebUri
+      client {
+        id
+        name
+        firstName
+        lastName
+        companyName
+        emails {
+          address
+          primary
+        }
+        phones {
+          number
+          primary
+        }
+      }
+      property {
+        id
+        address {
+          street1
+          street2
+          city
+          province
+          postalCode
+          country
+        }
+      }
+      lineItems(first: 50) {
+        nodes {
+          id
+          name
+          description
+          quantity
+          unitPrice
+          totalPrice
+          taxable
+        }
+      }
+      visits(first: 50) {
+        nodes {
+          id
+          title
+          startAt
+          endAt
+          instructions
+          visitStatus
+          isComplete
+          allDay
+          assignedUsers(first: 10) {
+            nodes {
+              id
+              name {
+                full
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Fetch a full Jobber job record (line items, property, client, visits).
+ */
+export async function getJob(jobId) {
+  if (!jobId) throw new Error('jobId is required');
+
+  const data = await jobberGraphql(GET_JOB, { id: String(jobId) });
+  const job = data?.job;
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+
+  return {
+    id: job.id,
+    jobNumber: job.jobNumber,
+    title: job.title,
+    jobStatus: job.jobStatus,
+    jobType: job.jobType,
+    instructions: job.instructions,
+    total: job.total,
+    invoicedTotal: job.invoicedTotal,
+    uninvoicedTotal: job.uninvoicedTotal,
+    startAt: job.startAt,
+    endAt: job.endAt,
+    completedAt: job.completedAt,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    jobberWebUri: job.jobberWebUri,
+    client: job.client
+      ? {
+          id: job.client.id,
+          name: job.client.name,
+          firstName: job.client.firstName,
+          lastName: job.client.lastName,
+          companyName: job.client.companyName,
+          emails: job.client.emails || [],
+          phones: job.client.phones || [],
+        }
+      : null,
+    property: job.property
+      ? {
+          id: job.property.id,
+          address: job.property.address || null,
+        }
+      : null,
+    lineItems: job.lineItems?.nodes || [],
+    visits: (job.visits?.nodes || []).map((v) => ({
+      id: v.id,
+      title: v.title,
+      startAt: v.startAt,
+      endAt: v.endAt,
+      instructions: v.instructions,
+      visitStatus: v.visitStatus,
+      isComplete: v.isComplete,
+      allDay: v.allDay,
+      assignedUsers: (v.assignedUsers?.nodes || []).map((u) => ({
+        id: u.id,
+        name: u.name?.full || null,
+      })),
+    })),
+  };
+}
+
+const SEARCH_CLIENTS = `
+  query SearchClients($first: Int!, $searchTerm: String!) {
+    clients(first: $first, searchTerm: $searchTerm) {
+      nodes {
+        id
+        name
+      }
+    }
+  }
+`;
+
+const SEARCH_INVOICES = `
+  query SearchInvoices($first: Int!, $filter: InvoiceFilterAttributes) {
+    invoices(first: $first, filter: $filter) {
+      nodes {
+        id
+        invoiceNumber
+        subject
+        invoiceStatus
+        issuedDate
+        dueDate
+        amounts {
+          subtotal
+          taxAmount
+          total
+          paymentsTotal
+          invoiceBalance
+        }
+        client {
+          id
+          name
+        }
+      }
+      totalCount
+    }
+  }
+`;
+
+/**
+ * Search/filter Jobber invoices for A/R reconciliation.
+ * Filters by client name, status, and/or invoice number.
+ */
+export async function searchInvoices({
+  clientName,
+  status,
+  invoiceNumber,
+  query,
+  limit = 25,
+} = {}) {
+  const first = Math.min(Math.max(Number(limit) || 25, 1), 50);
+
+  const filter = {};
+  if (status) {
+    const statuses = Array.isArray(status) ? status : [status];
+    filter.invoiceStatus = statuses.map((s) => String(s).trim()).filter(Boolean);
+  }
+
+  // Resolve client name → clientId via clients(searchTerm) (invoices have no searchTerm)
+  const nameQuery = (clientName || query || '').trim();
+  if (nameQuery && !invoiceNumber) {
+    const clientData = await jobberGraphql(SEARCH_CLIENTS, {
+      first: 5,
+      searchTerm: nameQuery,
+    });
+    const clients = clientData?.clients?.nodes || [];
+    if (clients.length === 1) {
+      filter.clientId = clients[0].id;
+    } else if (clients.length > 1) {
+      // Prefer exact / closer name match
+      const needle = nameQuery.toLowerCase();
+      const exact = clients.find(
+        (c) => String(c.name || '').toLowerCase() === needle
+      );
+      filter.clientId = (exact || clients[0]).id;
+    }
+  }
+
+  const variables = { first };
+  if (Object.keys(filter).length) variables.filter = filter;
+
+  // When searching by invoice number only, pull a wider page then filter locally
+  if (invoiceNumber != null && String(invoiceNumber).trim() !== '' && !filter.clientId) {
+    variables.first = Math.min(50, Math.max(first, 50));
+  }
+
+  const data = await jobberGraphql(SEARCH_INVOICES, variables);
+  let nodes = data?.invoices?.nodes || [];
+
+  if (invoiceNumber != null && String(invoiceNumber).trim() !== '') {
+    const target = String(invoiceNumber).trim().toLowerCase();
+    nodes = nodes
+      .filter(
+        (inv) =>
+          String(inv.invoiceNumber || '').toLowerCase() === target ||
+          String(inv.invoiceNumber || '').toLowerCase().includes(target)
+      )
+      .sort((a, b) => {
+        const aExact =
+          String(a.invoiceNumber || '').toLowerCase() === target ? 0 : 1;
+        const bExact =
+          String(b.invoiceNumber || '').toLowerCase() === target ? 0 : 1;
+        return aExact - bExact;
+      });
+  }
+
+  if (clientName && String(clientName).trim() && !filter.clientId) {
+    const needle = String(clientName).trim().toLowerCase();
+    nodes = nodes.filter((inv) =>
+      String(inv.client?.name || '').toLowerCase().includes(needle)
+    );
+  }
+
+  if (query && String(query).trim() && !filter.clientId && !invoiceNumber) {
+    const needle = String(query).trim().toLowerCase();
+    nodes = nodes.filter(
+      (inv) =>
+        String(inv.client?.name || '').toLowerCase().includes(needle) ||
+        String(inv.invoiceNumber || '').toLowerCase().includes(needle) ||
+        String(inv.subject || '').toLowerCase().includes(needle)
+    );
+  }
+
+  nodes = nodes.slice(0, first);
+
+  const invoices = nodes.map((inv) => {
+    const balance = inv.amounts?.invoiceBalance ?? null;
+    return {
+      id: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      subject: inv.subject,
+      invoiceStatus: inv.invoiceStatus,
+      issuedDate: inv.issuedDate,
+      dueDate: inv.dueDate,
+      clientId: inv.client?.id || null,
+      clientName: inv.client?.name || null,
+      amounts: inv.amounts
+        ? {
+            ...inv.amounts,
+            balance,
+          }
+        : null,
+      balance,
+      total: inv.amounts?.total ?? null,
+      paymentsTotal: inv.amounts?.paymentsTotal ?? null,
+    };
+  });
+
+  return {
+    count: invoices.length,
+    totalCount: data?.invoices?.totalCount ?? invoices.length,
+    invoices,
+  };
+}
+
+const GET_QUOTE = `
+  query GetQuote($id: EncodedId!) {
+    quote(id: $id) {
+      id
+      quoteNumber
+      quoteStatus
+      title
+      message
+      amounts {
+        subtotal
+        taxAmount
+        total
+        depositAmount
+        discountAmount
+        outstandingDepositAmount
+      }
+      depositAmountUnallocated
+      client {
+        id
+        name
+      }
+      property {
+        id
+        address {
+          street1
+          street2
+          city
+          province
+          postalCode
+          country
+        }
+      }
+      lineItems(first: 50) {
+        nodes {
+          id
+          name
+          description
+          quantity
+          unitPrice
+          totalPrice
+          taxable
+        }
+      }
+      jobs(first: 10) {
+        nodes {
+          id
+          jobNumber
+          title
+          jobStatus
+        }
+      }
+      createdAt
+      updatedAt
+      sentAt
+      transitionedAt
+      jobberWebUri
+    }
+  }
+`;
+
+/**
+ * Fetch a Jobber quote with line items and deposit amounts.
+ */
+export async function getQuote(quoteId) {
+  if (!quoteId) throw new Error('quoteId is required');
+
+  const data = await jobberGraphql(GET_QUOTE, { id: String(quoteId) });
+  const quote = data?.quote;
+  if (!quote) throw new Error(`Quote not found: ${quoteId}`);
+
+  return {
+    id: quote.id,
+    quoteNumber: quote.quoteNumber,
+    quoteStatus: quote.quoteStatus,
+    title: quote.title,
+    message: quote.message,
+    amounts: quote.amounts || null,
+    depositAmount: quote.amounts?.depositAmount ?? null,
+    outstandingDepositAmount: quote.amounts?.outstandingDepositAmount ?? null,
+    depositAmountUnallocated: quote.depositAmountUnallocated ?? null,
+    client: quote.client || null,
+    property: quote.property
+      ? {
+          id: quote.property.id,
+          address: quote.property.address || null,
+        }
+      : null,
+    lineItems: quote.lineItems?.nodes || [],
+    jobs: quote.jobs?.nodes || [],
+    createdAt: quote.createdAt,
+    updatedAt: quote.updatedAt,
+    sentAt: quote.sentAt,
+    transitionedAt: quote.transitionedAt,
+    jobberWebUri: quote.jobberWebUri,
   };
 }
