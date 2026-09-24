@@ -8,6 +8,18 @@ const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 
 const pendingStates = new Map();
 
+/** Single-flight lock so concurrent callers share one Intuit refresh. */
+let refreshInFlight = null;
+
+/** Tracks last refresh token we durable-synced (avoid TTL-only Render writes). */
+let lastDurableRefreshToken =
+  process.env.QBO_REFRESH_TOKEN != null
+    ? String(process.env.QBO_REFRESH_TOKEN)
+    : null;
+
+/** @type {ReturnType<typeof setInterval>|null} */
+let keepaliveTimer = null;
+
 const DEFAULT_CASH_ACCOUNT_NAMES = [
   'Checking-Marion County Bank (3696)',
   'N/P-Marion County Bank (LOC 0549-100)',
@@ -40,41 +52,125 @@ function minorVersion() {
   return process.env.QBO_MINOR_VERSION || '75';
 }
 
-export function loadQboTokens() {
-  if (process.env.QBO_ACCESS_TOKEN && process.env.QBO_REALM_ID) {
-    return {
-      accessToken: process.env.QBO_ACCESS_TOKEN,
-      refreshToken: process.env.QBO_REFRESH_TOKEN || null,
-      realmId: process.env.QBO_REALM_ID,
-      expiresAt: process.env.QBO_EXPIRES_AT
-        ? Number(process.env.QBO_EXPIRES_AT)
-        : null,
-    };
-  }
-  return readJson(TOKEN_FILE);
+function parseExpiresAt(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function saveQboTokens(tokens) {
+function tokensFromEnv() {
+  if (!process.env.QBO_REFRESH_TOKEN && !process.env.QBO_ACCESS_TOKEN) {
+    return null;
+  }
+  if (!process.env.QBO_REALM_ID && !process.env.QBO_REFRESH_TOKEN) {
+    return null;
+  }
+  return {
+    accessToken: process.env.QBO_ACCESS_TOKEN || null,
+    refreshToken: process.env.QBO_REFRESH_TOKEN || null,
+    realmId: process.env.QBO_REALM_ID || null,
+    expiresAt: parseExpiresAt(process.env.QBO_EXPIRES_AT),
+    refreshExpiresAt: parseExpiresAt(process.env.QBO_REFRESH_EXPIRES_AT),
+    obtainedAt: null,
+    source: 'env',
+  };
+}
+
+/**
+ * Prefer the freshest token set between ephemeral file and env.
+ * Access tokens live in memory/file; only refresh tokens are durable on Render.
+ */
+export function loadQboTokens() {
+  const fromFile = readJson(TOKEN_FILE);
+  const fromEnv = tokensFromEnv();
+
+  if (!fromFile && !fromEnv) return null;
+
+  if (fromFile && fromEnv) {
+    const fileExp = parseExpiresAt(fromFile.expiresAt) || 0;
+    const envExp = parseExpiresAt(fromEnv.expiresAt) || 0;
+    // Prefer file when it has a newer access-token expiry (post-refresh in this process)
+    if (fileExp >= envExp && fromFile.refreshToken) {
+      return {
+        accessToken: fromFile.accessToken || fromEnv.accessToken,
+        refreshToken: fromFile.refreshToken,
+        realmId: fromFile.realmId || fromEnv.realmId,
+        expiresAt: parseExpiresAt(fromFile.expiresAt),
+        refreshExpiresAt:
+          parseExpiresAt(fromFile.refreshExpiresAt) ||
+          fromEnv.refreshExpiresAt,
+        obtainedAt: fromFile.obtainedAt || null,
+        source: 'file',
+      };
+    }
+    return {
+      accessToken: fromEnv.accessToken || fromFile.accessToken,
+      refreshToken: fromEnv.refreshToken || fromFile.refreshToken,
+      realmId: fromEnv.realmId || fromFile.realmId,
+      expiresAt: fromEnv.expiresAt || parseExpiresAt(fromFile.expiresAt),
+      refreshExpiresAt:
+        fromEnv.refreshExpiresAt || parseExpiresAt(fromFile.refreshExpiresAt),
+      obtainedAt: fromFile.obtainedAt || null,
+      source: 'env',
+    };
+  }
+
+  if (fromFile) {
+    return {
+      ...fromFile,
+      expiresAt: parseExpiresAt(fromFile.expiresAt),
+      refreshExpiresAt: parseExpiresAt(fromFile.refreshExpiresAt),
+      source: 'file',
+    };
+  }
+
+  return fromEnv;
+}
+
+export async function saveQboTokens(tokens) {
   const payload = {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     realmId: tokens.realmId,
     expiresAt: tokens.expiresAt,
+    refreshExpiresAt: tokens.refreshExpiresAt ?? null,
     obtainedAt: new Date().toISOString(),
     environment: environment(),
   };
   writeJson(TOKEN_FILE, payload);
 
-  // Fire durable sync; callers that await refresh already use async paths
-  return persistEnvVars({
-    QBO_ACCESS_TOKEN: payload.accessToken,
-    QBO_REFRESH_TOKEN: payload.refreshToken,
-    QBO_REALM_ID: payload.realmId,
-    QBO_EXPIRES_AT: payload.expiresAt,
-  }).then((sync) => {
-    payload.durableSync = sync;
-    return payload;
-  });
+  // Keep access token in process env for this instance only — do NOT sync it to
+  // Render (env changes redeploy Free tier and race refresh-token rotation).
+  if (payload.accessToken) process.env.QBO_ACCESS_TOKEN = String(payload.accessToken);
+  if (payload.expiresAt != null) {
+    process.env.QBO_EXPIRES_AT = String(payload.expiresAt);
+  }
+
+  // Durable: only sync when refresh token / realm actually change.
+  // Include refresh expiry in the same write so we don't redeploy for TTL drift alone.
+  const prevRefresh = lastDurableRefreshToken;
+  const refreshChanged = prevRefresh !== String(payload.refreshToken || '');
+  const realmChanged =
+    process.env.QBO_REALM_ID !== String(payload.realmId || '');
+
+  const durable = {};
+  if (refreshChanged) {
+    durable.QBO_REFRESH_TOKEN = payload.refreshToken;
+    if (payload.refreshExpiresAt != null) {
+      durable.QBO_REFRESH_EXPIRES_AT = payload.refreshExpiresAt;
+    }
+  }
+  if (realmChanged) {
+    durable.QBO_REALM_ID = payload.realmId;
+  }
+
+  let sync = { synced: true, updated: [], skipped: [] };
+  if (Object.keys(durable).length) {
+    sync = await persistEnvVars(durable, { onlyIfChanged: true });
+    if (refreshChanged) lastDurableRefreshToken = String(payload.refreshToken || '');
+  }
+  payload.durableSync = sync;
+  return payload;
 }
 
 export function clearQboTokens() {
@@ -83,11 +179,41 @@ export function clearQboTokens() {
   delete process.env.QBO_REFRESH_TOKEN;
   delete process.env.QBO_REALM_ID;
   delete process.env.QBO_EXPIRES_AT;
+  delete process.env.QBO_REFRESH_EXPIRES_AT;
 }
 
 export function hasQboTokens() {
   const t = loadQboTokens();
-  return Boolean(t?.accessToken && t?.realmId);
+  return Boolean(t?.refreshToken && t?.realmId);
+}
+
+export function getQboAuthStatus() {
+  const t = loadQboTokens();
+  if (!t?.refreshToken || !t?.realmId) {
+    return { connected: false, reason: 'not_connected' };
+  }
+  const now = Date.now();
+  const accessExpiresInMs =
+    t.expiresAt != null ? t.expiresAt - now : null;
+  const refreshExpiresInMs =
+    t.refreshExpiresAt != null ? t.refreshExpiresAt - now : null;
+  return {
+    connected: true,
+    realmId: t.realmId,
+    source: t.source || null,
+    accessExpiresAt: t.expiresAt || null,
+    accessExpiresInMinutes:
+      accessExpiresInMs != null
+        ? Math.round(accessExpiresInMs / 60000)
+        : null,
+    refreshExpiresAt: t.refreshExpiresAt || null,
+    refreshExpiresInDays:
+      refreshExpiresInMs != null
+        ? Math.round(refreshExpiresInMs / 86400000)
+        : null,
+    needsReauth:
+      refreshExpiresInMs != null ? refreshExpiresInMs < 7 * 86400000 : false,
+  };
 }
 
 export function buildQboAuthorizeUrl() {
@@ -122,11 +248,32 @@ async function tokenRequest(body) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
+    const err = new Error(
       `QBO token error (${res.status}): ${data.error_description || data.error || JSON.stringify(data)}`
     );
+    err.code = data.error || null;
+    err.status = res.status;
+    throw err;
   }
   return data;
+}
+
+function buildTokenPayload(data, realmId, previousRefreshToken = null) {
+  const now = Date.now();
+  const expiresAt = now + (Number(data.expires_in) || 3600) * 1000;
+  // Intuit refresh tokens typically last ~100 days; response includes x_refresh_token_expires_in
+  const refreshTtlSec = Number(data.x_refresh_token_expires_in);
+  const refreshExpiresAt = Number.isFinite(refreshTtlSec) && refreshTtlSec > 0
+    ? now + refreshTtlSec * 1000
+    : null;
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || previousRefreshToken,
+    realmId: String(realmId),
+    expiresAt,
+    refreshExpiresAt,
+  };
 }
 
 export async function exchangeQboCode({ code, state, realmId }) {
@@ -148,50 +295,108 @@ export async function exchangeQboCode({ code, state, realmId }) {
     redirect_uri: redirectUri,
   });
 
-  const expiresAt = Date.now() + (Number(data.expires_in) || 3600) * 1000;
-
-  return saveQboTokens({
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    realmId: String(realmId),
-    expiresAt,
-  });
+  return saveQboTokens(buildTokenPayload(data, realmId));
 }
 
 export async function refreshQboAccessToken() {
-  const current = loadQboTokens();
-  if (!current?.refreshToken) {
-    throw new Error('No QBO refresh token. Visit /qbo/auth to connect QuickBooks.');
-  }
+  if (refreshInFlight) return refreshInFlight;
 
-  const data = await tokenRequest({
-    grant_type: 'refresh_token',
-    refresh_token: current.refreshToken,
-  });
+  refreshInFlight = (async () => {
+    const current = loadQboTokens();
+    if (!current?.refreshToken) {
+      throw new Error('No QBO refresh token. Visit /qbo/auth to connect QuickBooks.');
+    }
+    if (!current.realmId) {
+      throw new Error('No QBO realmId. Visit /qbo/auth to connect QuickBooks.');
+    }
 
-  const expiresAt = Date.now() + (Number(data.expires_in) || 3600) * 1000;
+    try {
+      const data = await tokenRequest({
+        grant_type: 'refresh_token',
+        refresh_token: current.refreshToken,
+      });
 
-  return saveQboTokens({
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token || current.refreshToken,
-    realmId: current.realmId,
-    expiresAt,
-  });
+      return await saveQboTokens(
+        buildTokenPayload(data, current.realmId, current.refreshToken)
+      );
+    } catch (err) {
+      // invalid_grant = refresh token revoked/expired/already rotated — force reauth
+      if (
+        err.code === 'invalid_grant' ||
+        /invalid_grant/i.test(err.message || '')
+      ) {
+        clearQboTokens();
+        throw new Error(
+          'QuickBooks refresh token is no longer valid (revoked, expired, or already used). Reconnect at /qbo/auth'
+        );
+      }
+      throw err;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 async function getValidAccessToken() {
   let tokens = loadQboTokens();
-  if (!tokens?.accessToken || !tokens?.realmId) {
+  if (!tokens?.refreshToken || !tokens?.realmId) {
     throw new Error('QuickBooks is not connected. Open /qbo/auth to authorize.');
   }
 
-  // Refresh ~5 minutes before expiry (or if unknown expiry and file-based)
+  // Refresh ~5 min before expiry, or immediately when access token / expiry unknown
   const skewMs = 5 * 60 * 1000;
-  if (tokens.expiresAt && Date.now() >= tokens.expiresAt - skewMs) {
+  const needsRefresh =
+    !tokens.accessToken ||
+    !tokens.expiresAt ||
+    Date.now() >= tokens.expiresAt - skewMs;
+
+  if (needsRefresh) {
     tokens = await refreshQboAccessToken();
   }
 
   return tokens;
+}
+
+/**
+ * On boot: hydrate a valid access token from the durable refresh token.
+ */
+export async function ensureQboSession() {
+  const tokens = loadQboTokens();
+  if (!tokens?.refreshToken || !tokens?.realmId) {
+    return { ok: false, reason: 'not_connected' };
+  }
+  try {
+    await getValidAccessToken();
+    return { ok: true, ...getQboAuthStatus() };
+  } catch (err) {
+    console.error('QBO session restore failed:', err.message);
+    return { ok: false, reason: err.message };
+  }
+}
+
+/**
+ * Periodically touch the access token so Free-tier idle + hourly expiry
+ * don't leave us stranded on a stale refresh chain.
+ */
+export function startQboTokenKeepalive(intervalMs = 45 * 60 * 1000) {
+  if (keepaliveTimer) clearInterval(keepaliveTimer);
+
+  const tick = async () => {
+    try {
+      if (!hasQboTokens()) return;
+      await getValidAccessToken();
+    } catch (err) {
+      console.warn('QBO keepalive failed:', err.message);
+    }
+  };
+
+  // Don't block listen(); run shortly after boot, then on interval
+  setTimeout(tick, 5_000);
+  keepaliveTimer = setInterval(tick, intervalMs);
+  if (typeof keepaliveTimer.unref === 'function') keepaliveTimer.unref();
+  return keepaliveTimer;
 }
 
 export async function qboRequest(method, path, { query, body } = {}) {
