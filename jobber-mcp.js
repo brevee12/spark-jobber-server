@@ -11,6 +11,9 @@ import {
   exchangeQboCode,
   hasQboTokens,
   clearQboTokens,
+  ensureQboSession,
+  startQboTokenKeepalive,
+  getQboAuthStatus,
 } from './src/services/qbo.js';
 import {
   hasSimpleFinAccess,
@@ -56,11 +59,13 @@ function createMcpServer() {
 }
 
 app.get('/health', (_req, res) => {
+  const qboAuth = getQboAuthStatus();
   res.json({
     ok: true,
     transport: 'streamable-http',
     jobberConnected: hasTokens(),
     qboConnected: hasQboTokens(),
+    qboAuth,
     simplefinConfigured: hasSimpleFinAccess(),
     simplefinAccessUrlSaved: Boolean(getAccessUrl()),
     durableTokenSync: durableSyncConfigured(),
@@ -177,7 +182,9 @@ app.get('/oauth/callback', async (req, res) => {
   try {
     const saved = await exchangeCodeForTokens(String(code), String(state));
     const syncNote = saved?.durableSync?.synced
-      ? 'Tokens also synced to Render env (survives deploys).'
+      ? 'Refresh token saved to Render env (survives deploys).'
+      : saved?.durableSync?.updated?.length === 0
+        ? 'Refresh token unchanged — no Render redeploy triggered.'
       : 'Tip: set RENDER_API_KEY + RENDER_SERVICE_ID so tokens survive deploys automatically.';
     res.type('html').send(
       `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:36rem;margin:2rem auto;padding:0 1rem">
@@ -222,7 +229,9 @@ app.get('/qbo/callback', async (req, res) => {
       realmId: realmId ? String(realmId) : null,
     });
     const syncNote = saved?.durableSync?.synced
-      ? 'Tokens also synced to Render env (survives deploys).'
+      ? 'Refresh token saved to Render env (survives deploys).'
+      : saved?.durableSync?.updated?.length === 0
+        ? 'Refresh token unchanged — no Render redeploy triggered.'
       : 'Tip: set RENDER_API_KEY + RENDER_SERVICE_ID so tokens survive deploys automatically.';
     res.type('html').send(
       `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:36rem;margin:2rem auto;padding:0 1rem">
@@ -322,4 +331,14 @@ app.listen(PORT, () => {
   console.log(`MCP:        POST http://localhost:${PORT}/mcp`);
   console.log(`Jobber:     http://localhost:${PORT}/oauth/start`);
   console.log(`QuickBooks: http://localhost:${PORT}/qbo/auth`);
+
+  // Restore QBO access token from durable refresh token; keep it warm
+  ensureQboSession().then((result) => {
+    if (result.ok) {
+      console.log('QBO session restored from refresh token');
+    } else if (result.reason !== 'not_connected') {
+      console.warn('QBO session restore:', result.reason);
+    }
+  });
+  startQboTokenKeepalive();
 });
