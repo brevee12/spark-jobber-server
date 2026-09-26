@@ -813,6 +813,143 @@ export async function searchInvoices({
   };
 }
 
+const SEARCH_QUOTES = `
+  query SearchQuotes($first: Int!, $searchTerm: String) {
+    quotes(first: $first, searchTerm: $searchTerm) {
+      nodes {
+        id
+        quoteNumber
+        quoteStatus
+        title
+        message
+        amounts {
+          subtotal
+          taxAmount
+          total
+          depositAmount
+          discountAmount
+          outstandingDepositAmount
+        }
+        client {
+          id
+          name
+        }
+        property {
+          id
+          address {
+            street1
+            city
+            province
+            postalCode
+          }
+        }
+        jobs(first: 5) {
+          nodes {
+            id
+            jobNumber
+            title
+            jobStatus
+          }
+        }
+        createdAt
+        updatedAt
+        sentAt
+        transitionedAt
+        jobberWebUri
+      }
+      totalCount
+    }
+  }
+`;
+
+/**
+ * Search Jobber quotes (by number, client, title) for live quote review.
+ */
+export async function searchQuotes({
+  quoteNumber,
+  clientName,
+  status,
+  query,
+  limit = 25,
+} = {}) {
+  const first = Math.min(Math.max(Number(limit) || 25, 1), 50);
+
+  const searchParts = [];
+  if (quoteNumber != null && String(quoteNumber).trim() !== '') {
+    searchParts.push(String(quoteNumber).trim());
+  } else if (clientName) {
+    searchParts.push(String(clientName).trim());
+  } else if (query) {
+    searchParts.push(String(query).trim());
+  }
+  const searchTerm = searchParts.join(' ').trim() || null;
+
+  const variables = { first };
+  if (searchTerm) variables.searchTerm = searchTerm;
+
+  // Fetch without status filter (schema field name varies); filter client-side
+  const data = await jobberGraphql(SEARCH_QUOTES, variables);
+  let nodes = data?.quotes?.nodes || [];
+
+  if (status) {
+    const wanted = (Array.isArray(status) ? status : [status]).map((s) =>
+      String(s).trim().toLowerCase()
+    );
+    nodes = nodes.filter((q) =>
+      wanted.includes(String(q.quoteStatus || '').toLowerCase())
+    );
+  }
+
+  if (quoteNumber != null && String(quoteNumber).trim() !== '') {
+    const target = String(quoteNumber).trim().toLowerCase();
+    nodes = nodes
+      .filter(
+        (q) =>
+          String(q.quoteNumber || '').toLowerCase() === target ||
+          String(q.quoteNumber || '').toLowerCase().includes(target)
+      )
+      .sort((a, b) => {
+        const aExact =
+          String(a.quoteNumber || '').toLowerCase() === target ? 0 : 1;
+        const bExact =
+          String(b.quoteNumber || '').toLowerCase() === target ? 0 : 1;
+        return aExact - bExact;
+      });
+  }
+
+  if (clientName && String(clientName).trim()) {
+    const needle = String(clientName).trim().toLowerCase();
+    nodes = nodes.filter((q) =>
+      String(q.client?.name || '').toLowerCase().includes(needle)
+    );
+  }
+
+  const quotes = nodes.map((q) => ({
+    id: q.id,
+    quoteNumber: q.quoteNumber,
+    quoteStatus: q.quoteStatus,
+    title: q.title,
+    message: q.message,
+    clientId: q.client?.id || null,
+    clientName: q.client?.name || null,
+    property: q.property || null,
+    amounts: q.amounts || null,
+    depositAmount: q.amounts?.depositAmount ?? null,
+    jobs: q.jobs?.nodes || [],
+    createdAt: q.createdAt,
+    updatedAt: q.updatedAt,
+    sentAt: q.sentAt,
+    transitionedAt: q.transitionedAt,
+    jobberWebUri: q.jobberWebUri,
+  }));
+
+  return {
+    count: quotes.length,
+    totalCount: data?.quotes?.totalCount ?? quotes.length,
+    quotes,
+  };
+}
+
 const GET_QUOTE = `
   query GetQuote($id: EncodedId!) {
     quote(id: $id) {
@@ -833,6 +970,27 @@ const GET_QUOTE = `
       client {
         id
         name
+        jobs(first: 25) {
+          nodes {
+            id
+            jobNumber
+            title
+            jobStatus
+            total
+            startAt
+            endAt
+            completedAt
+            property {
+              id
+              address {
+                street1
+                city
+                province
+                postalCode
+              }
+            }
+          }
+        }
       }
       property {
         id
@@ -874,7 +1032,8 @@ const GET_QUOTE = `
 `;
 
 /**
- * Fetch a Jobber quote with line items and deposit amounts.
+ * Fetch a Jobber quote with line items, deposits, and the client's past jobs
+ * so ops can compare how prior work may apply to this quote.
  */
 export async function getQuote(quoteId) {
   if (!quoteId) throw new Error('quoteId is required');
@@ -882,6 +1041,10 @@ export async function getQuote(quoteId) {
   const data = await jobberGraphql(GET_QUOTE, { id: String(quoteId) });
   const quote = data?.quote;
   if (!quote) throw new Error(`Quote not found: ${quoteId}`);
+
+  const pastJobs = quote.client?.jobs?.nodes || [];
+  const linkedJobs = quote.jobs?.nodes || [];
+  const linkedIds = new Set(linkedJobs.map((j) => j.id));
 
   return {
     id: quote.id,
@@ -893,7 +1056,9 @@ export async function getQuote(quoteId) {
     depositAmount: quote.amounts?.depositAmount ?? null,
     outstandingDepositAmount: quote.amounts?.outstandingDepositAmount ?? null,
     depositAmountUnallocated: quote.depositAmountUnallocated ?? null,
-    client: quote.client || null,
+    client: quote.client
+      ? { id: quote.client.id, name: quote.client.name }
+      : null,
     property: quote.property
       ? {
           id: quote.property.id,
@@ -901,11 +1066,265 @@ export async function getQuote(quoteId) {
         }
       : null,
     lineItems: quote.lineItems?.nodes || [],
-    jobs: quote.jobs?.nodes || [],
+    jobs: linkedJobs,
+    /** Other jobs for this client — useful when scoping a new quote */
+    clientPastJobs: pastJobs.map((j) => ({
+      id: j.id,
+      jobNumber: j.jobNumber,
+      title: j.title,
+      jobStatus: j.jobStatus,
+      total: j.total,
+      startAt: j.startAt,
+      endAt: j.endAt,
+      completedAt: j.completedAt,
+      property: j.property || null,
+      linkedToThisQuote: linkedIds.has(j.id),
+    })),
     createdAt: quote.createdAt,
     updatedAt: quote.updatedAt,
     sentAt: quote.sentAt,
     transitionedAt: quote.transitionedAt,
     jobberWebUri: quote.jobberWebUri,
+  };
+}
+
+const GET_SCHEDULE = `
+  query GetSchedule($first: Int!, $filter: VisitFilterAttributes) {
+    visits(first: $first, filter: $filter) {
+      nodes {
+        id
+        title
+        visitStatus
+        startAt
+        endAt
+        allDay
+        duration
+        isComplete
+        instructions
+        client {
+          id
+          name
+        }
+        property {
+          id
+          address {
+            street1
+            city
+            province
+            postalCode
+          }
+        }
+        job {
+          id
+          jobNumber
+          title
+          jobStatus
+        }
+        assignedUsers(first: 20) {
+          nodes {
+            id
+            name {
+              full
+            }
+          }
+        }
+      }
+      totalCount
+    }
+  }
+`;
+
+/**
+ * Live Jobber schedule (visits) for a date window — replaces dashboard mock data.
+ */
+export async function getSchedule({
+  startDate,
+  endDate,
+  status,
+  limit = 50,
+} = {}) {
+  const first = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const filter = {};
+  if (status) {
+    filter.status = Array.isArray(status) ? status : [status];
+  }
+
+  const variables = { first };
+  if (Object.keys(filter).length) variables.filter = filter;
+
+  const data = await jobberGraphql(GET_SCHEDULE, variables);
+  let nodes = data?.visits?.nodes || [];
+
+  const startMs = startDate ? Date.parse(startDate) : null;
+  const endMs = endDate ? Date.parse(endDate) : null;
+  if (startMs != null || endMs != null) {
+    nodes = nodes.filter((v) => {
+      if (!v.startAt) return false;
+      const t = Date.parse(v.startAt);
+      if (Number.isNaN(t)) return false;
+      if (startMs != null && !Number.isNaN(startMs) && t < startMs) return false;
+      if (endMs != null && !Number.isNaN(endMs) && t > endMs) return false;
+      return true;
+    });
+  }
+
+  const visits = nodes.map((v) => ({
+    id: v.id,
+    title: v.title,
+    visitStatus: v.visitStatus,
+    startAt: v.startAt,
+    endAt: v.endAt,
+    allDay: v.allDay,
+    duration: v.duration,
+    isComplete: v.isComplete,
+    instructions: v.instructions,
+    clientId: v.client?.id || null,
+    clientName: v.client?.name || null,
+    property: v.property || null,
+    job: v.job || null,
+    assignedUsers: (v.assignedUsers?.nodes || []).map((u) => ({
+      id: u.id,
+      name: u.name?.full || null,
+    })),
+  }));
+
+  visits.sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
+
+  return {
+    source: 'jobber',
+    count: visits.length,
+    totalCount: data?.visits?.totalCount ?? visits.length,
+    startDate: startDate || null,
+    endDate: endDate || null,
+    visits,
+  };
+}
+
+const GET_TIMESHEETS = `
+  query GetTimesheets($first: Int!, $filter: TimeSheetEntriesFilterAttributes) {
+    timeSheetEntries(first: $first, filter: $filter) {
+      nodes {
+        id
+        startAt
+        endAt
+        finalDuration
+        label
+        approved
+        ticking
+        user {
+          id
+          name {
+            full
+          }
+        }
+        job {
+          id
+          jobNumber
+          title
+        }
+        visit {
+          id
+          title
+          startAt
+        }
+        client {
+          id
+          name
+        }
+      }
+      totalCount
+    }
+  }
+`;
+
+/**
+ * Live Jobber timesheet entries for a date window — replaces dashboard mock data.
+ */
+export async function getTimesheets({
+  startDate,
+  endDate,
+  limit = 50,
+} = {}) {
+  const first = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const filter = {};
+
+  // Prefer range filter when both bounds provided (schema uses startAt range)
+  if (startDate || endDate) {
+    filter.startAt = {};
+    if (startDate) filter.startAt.after = new Date(startDate).toISOString();
+    if (endDate) filter.startAt.before = new Date(endDate).toISOString();
+  }
+
+  const variables = { first };
+  if (Object.keys(filter).length) variables.filter = filter;
+
+  let data;
+  try {
+    data = await jobberGraphql(GET_TIMESHEETS, variables);
+  } catch (err) {
+    // Fallback if filter shape differs by API version — pull recent and filter locally
+    if (!/filter|startAt|TimeSheet/i.test(err.message || '')) throw err;
+    data = await jobberGraphql(
+      `query GetTimesheetsFallback($first: Int!) {
+        timeSheetEntries(first: $first) {
+          nodes {
+            id startAt endAt finalDuration label approved ticking
+            user { id name { full } }
+            job { id jobNumber title }
+            visit { id title startAt }
+            client { id name }
+          }
+          totalCount
+        }
+      }`,
+      { first }
+    );
+  }
+
+  let nodes = data?.timeSheetEntries?.nodes || [];
+  const startMs = startDate ? Date.parse(startDate) : null;
+  const endMs = endDate ? Date.parse(endDate) : null;
+  if (startMs != null || endMs != null) {
+    nodes = nodes.filter((e) => {
+      if (!e.startAt) return false;
+      const t = Date.parse(e.startAt);
+      if (Number.isNaN(t)) return false;
+      if (startMs != null && !Number.isNaN(startMs) && t < startMs) return false;
+      if (endMs != null && !Number.isNaN(endMs) && t > endMs) return false;
+      return true;
+    });
+  }
+
+  const entries = nodes.map((e) => ({
+    id: e.id,
+    startAt: e.startAt,
+    endAt: e.endAt,
+    finalDurationSeconds: e.finalDuration,
+    label: e.label,
+    approved: e.approved,
+    ticking: e.ticking,
+    userId: e.user?.id || null,
+    userName: e.user?.name?.full || null,
+    job: e.job || null,
+    visit: e.visit || null,
+    clientId: e.client?.id || null,
+    clientName: e.client?.name || null,
+  }));
+
+  entries.sort((a, b) => String(b.startAt || '').localeCompare(String(a.startAt || '')));
+
+  const totalSeconds = entries.reduce(
+    (sum, e) => sum + (Number(e.finalDurationSeconds) || 0),
+    0
+  );
+
+  return {
+    source: 'jobber',
+    count: entries.length,
+    totalCount: data?.timeSheetEntries?.totalCount ?? entries.length,
+    totalHours: Math.round((totalSeconds / 3600) * 100) / 100,
+    startDate: startDate || null,
+    endDate: endDate || null,
+    entries,
   };
 }

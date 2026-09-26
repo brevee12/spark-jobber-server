@@ -7,6 +7,12 @@ import { buildAuthorizeUrl, exchangeCodeForTokens } from './jobber/oauth.js';
 import { hasTokens, clearTokens } from './jobber/tokenStore.js';
 import { toolDefinitions, callTool } from './src/mcp/tools.js';
 import {
+  searchQuotes,
+  getQuote,
+  getSchedule,
+  getTimesheets,
+} from './jobber/client.js';
+import {
   buildQboAuthorizeUrl,
   exchangeQboCode,
   hasQboTokens,
@@ -69,6 +75,12 @@ app.get('/health', (_req, res) => {
     simplefinConfigured: hasSimpleFinAccess(),
     simplefinAccessUrlSaved: Boolean(getAccessUrl()),
     durableTokenSync: durableSyncConfigured(),
+    liveApis: {
+      quotes: '/api/jobber/quotes',
+      quoteById: '/api/jobber/quotes/:id',
+      schedule: '/api/jobber/schedule',
+      timesheets: '/api/jobber/timesheets',
+    },
     env: {
       JOBBER_CLIENT_ID: Boolean(process.env.JOBBER_CLIENT_ID),
       JOBBER_CLIENT_SECRET: Boolean(process.env.JOBBER_CLIENT_SECRET),
@@ -85,6 +97,74 @@ app.get('/health', (_req, res) => {
       RENDER_SERVICE_ID: Boolean(process.env.RENDER_SERVICE_ID),
     },
   });
+});
+
+/** Live Jobber JSON APIs for dashboards (no mock/test data). */
+app.get('/api/jobber/quotes', async (req, res) => {
+  try {
+    if (!hasTokens()) {
+      res.status(401).json({ error: 'Jobber not connected. Open /oauth/start' });
+      return;
+    }
+    const result = await searchQuotes({
+      quoteNumber: req.query.quoteNumber,
+      clientName: req.query.clientName,
+      status: req.query.status,
+      query: req.query.q || req.query.query,
+      limit: req.query.limit ? Number(req.query.limit) : 25,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/jobber/quotes/:id', async (req, res) => {
+  try {
+    if (!hasTokens()) {
+      res.status(401).json({ error: 'Jobber not connected. Open /oauth/start' });
+      return;
+    }
+    const quote = await getQuote(req.params.id);
+    res.json(quote);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/jobber/schedule', async (req, res) => {
+  try {
+    if (!hasTokens()) {
+      res.status(401).json({ error: 'Jobber not connected. Open /oauth/start' });
+      return;
+    }
+    const result = await getSchedule({
+      startDate: req.query.start || req.query.startDate,
+      endDate: req.query.end || req.query.endDate,
+      status: req.query.status,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/jobber/timesheets', async (req, res) => {
+  try {
+    if (!hasTokens()) {
+      res.status(401).json({ error: 'Jobber not connected. Open /oauth/start' });
+      return;
+    }
+    const result = await getTimesheets({
+      startDate: req.query.start || req.query.startDate,
+      endDate: req.query.end || req.query.endDate,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 function legalPage(title, bodyHtml) {
