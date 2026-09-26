@@ -9,6 +9,9 @@ import {
   getJob,
   searchInvoices,
   getQuote,
+  searchQuotes,
+  getSchedule,
+  getTimesheets,
 } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
@@ -41,9 +44,12 @@ function fail(err) {
 const JOBBER_OPS = [
   'search_jobs',
   'search_invoices',
+  'search_quotes',
   'get_job',
   'get_invoice',
   'get_quote',
+  'get_schedule',
+  'get_timesheets',
   'create_client',
   'create_quote',
   'create_expense',
@@ -87,6 +93,30 @@ async function runJobberAction(action = {}) {
     case 'get_quote': {
       const quoteId = action.quoteId || action.id;
       return getQuote(quoteId);
+    }
+    case 'search_quotes': {
+      return searchQuotes({
+        quoteNumber: action.quoteNumber,
+        clientName: action.clientName,
+        status: action.status,
+        query: action.query,
+        limit: action.limit,
+      });
+    }
+    case 'get_schedule': {
+      return getSchedule({
+        startDate: action.startDate,
+        endDate: action.endDate,
+        status: action.status,
+        limit: action.limit,
+      });
+    }
+    case 'get_timesheets': {
+      return getTimesheets({
+        startDate: action.startDate,
+        endDate: action.endDate,
+        limit: action.limit,
+      });
     }
     case 'create_client': {
       return createClient({
@@ -293,8 +323,11 @@ export const toolDefinitions = [
               jobId: { type: 'string' },
               invoiceId: { type: 'string' },
               quoteId: { type: 'string' },
+              quoteNumber: { type: 'string' },
               expenseId: { type: 'string' },
               clientId: { type: 'string' },
+              startDate: { type: 'string' },
+              endDate: { type: 'string' },
               firstName: { type: 'string' },
               lastName: { type: 'string' },
               companyName: { type: 'string' },
