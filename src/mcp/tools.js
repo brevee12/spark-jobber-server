@@ -14,6 +14,7 @@ import {
   fetchSimpleFinTransactions,
   markTransactionsProcessed,
 } from '../services/simplefin.js';
+import { buildStagingReport } from '../services/bankStaging.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -205,7 +206,14 @@ async function runBookkeepingReview(args = {}) {
       if (args.markSeen && txs.length) {
         markTransactionsProcessed(txs.map((t) => t.id));
       }
-      out.bankFeed = { count: txs.length, transactions: txs };
+      // Staging annotations tell Spark how to clear each row (esp. CC refunds).
+      const staging = buildStagingReport(txs);
+      out.bankFeed = {
+        count: staging.transactionCount,
+        policy: staging.policy,
+        accounts: staging.accounts,
+        transactions: staging.transactions,
+      };
     } catch (err) {
       out.errors.push({ section: 'bankFeed', error: err.message });
     }
@@ -332,7 +340,7 @@ export const toolDefinitions = [
   {
     name: 'bookkeeping_review',
     description:
-      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN), QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Does NOT create/edit/delete anything in QuickBooks — use qbo_create_* / qbo_delete_transaction for writes (those require their own Allow).',
+      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated doNotPostViaApi — clear those in the QBO Banking feed only. Does NOT create/edit/delete anything in QuickBooks — use qbo_create_* / qbo_delete_transaction for writes (separate Allow).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -402,7 +410,7 @@ export const toolDefinitions = [
   {
     name: 'qbo_create_expense',
     description:
-      'WRITE to QuickBooks: create a Purchase (check/CC charge). Requires its own Allow — do not batch with Jobber.',
+      'WRITE to QuickBooks: create a Purchase (check/CC charge only — positive expense amounts). Never use for credit-card refunds/credits (positive amounts on a CC account); those must be cleared in the QBO Banking feed against the original expense account. Requires its own Allow — do not batch with Jobber.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -429,7 +437,7 @@ export const toolDefinitions = [
   {
     name: 'qbo_create_deposit',
     description:
-      'WRITE to QuickBooks: create a Bank Deposit. Requires its own Allow — do not batch with Jobber.',
+      'WRITE to QuickBooks: create a Bank Deposit into a checking/bank account (owner loans, non-invoice income). Never use for credit-card refunds — CC credits are not bank deposits; clear them in the QBO Banking feed. Requires its own Allow — do not batch with Jobber.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -456,7 +464,7 @@ export const toolDefinitions = [
   {
     name: 'qbo_create_transfer',
     description:
-      'WRITE to QuickBooks: transfer between accounts (CC payment, LOC). Requires its own Allow.',
+      'WRITE to QuickBooks: transfer between accounts (CC autopay Checking→Capital One, LOC draw/paydown). Preferred API write for credit-card payments. Requires its own Allow.',
     inputSchema: {
       type: 'object',
       properties: {
