@@ -3,8 +3,8 @@ import express from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { buildAuthorizeUrl, exchangeCodeForTokens } from './jobber/oauth.js';
-import { hasTokens, clearTokens } from './jobber/tokenStore.js';
+import { buildAuthorizeUrl, exchangeCodeForTokens, ensureJobberSession } from './jobber/oauth.js';
+import { hasTokens, clearTokens, getJobberAuthStatus } from './jobber/tokenStore.js';
 import { toolDefinitions, callTool } from './src/mcp/tools.js';
 import {
   buildQboAuthorizeUrl,
@@ -58,17 +58,50 @@ function createMcpServer() {
   return server;
 }
 
-app.get('/health', (_req, res) => {
-  const qboAuth = getQboAuthStatus();
+app.get('/health', async (req, res) => {
+  const probe = String(req.query.probe || '') === '1';
+  let jobberAuth = getJobberAuthStatus();
+
+  if (probe) {
+    // Live refresh — also clears dead tokens from Render when invalid
+    try {
+      const jobberProbe = await ensureJobberSession();
+      jobberAuth = {
+        connected: Boolean(jobberProbe.ok),
+        reason: jobberProbe.reason,
+        validated: true,
+        error: jobberProbe.error || undefined,
+        reconnect: jobberProbe.reconnect,
+      };
+    } catch (err) {
+      jobberAuth = {
+        connected: false,
+        reason: 'probe_error',
+        validated: true,
+        error: err.message,
+        reconnect: '/oauth/start',
+      };
+    }
+
+    try {
+      await ensureQboSession();
+    } catch {
+      // qboAuth snapshot below reflects cleared/failed state
+    }
+  }
+
   res.json({
     ok: true,
     transport: 'streamable-http',
-    jobberConnected: hasTokens(),
+    jobberConnected: hasTokens() && jobberAuth.reason !== 'token_invalid',
     qboConnected: hasQboTokens(),
-    qboAuth,
+    jobberAuth,
+    qboAuth: getQboAuthStatus(),
     simplefinConfigured: hasSimpleFinAccess(),
     simplefinAccessUrlSaved: Boolean(getAccessUrl()),
     durableTokenSync: durableSyncConfigured(),
+    hint:
+      'Add ?probe=1 to validate refresh tokens live (clears dead Jobber/QBO secrets from Render env).',
     env: {
       JOBBER_CLIENT_ID: Boolean(process.env.JOBBER_CLIENT_ID),
       JOBBER_CLIENT_SECRET: Boolean(process.env.JOBBER_CLIENT_SECRET),
@@ -198,8 +231,8 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-app.post('/oauth/disconnect', (_req, res) => {
-  clearTokens();
+app.post('/oauth/disconnect', async (_req, res) => {
+  await clearTokens({ clearDurable: true });
   res.json({ ok: true, jobberConnected: false });
 });
 
@@ -245,13 +278,13 @@ app.get('/qbo/callback', async (req, res) => {
   }
 });
 
-app.post('/qbo/disconnect', (_req, res) => {
-  clearQboTokens();
+app.post('/qbo/disconnect', async (_req, res) => {
+  await clearQboTokens({ clearDurable: true });
   res.json({ ok: true, qboConnected: false });
 });
 
-app.get('/qbo/disconnect', (_req, res) => {
-  clearQboTokens();
+app.get('/qbo/disconnect', async (_req, res) => {
+  await clearQboTokens({ clearDurable: true });
   res.type('html').send(
     legalPage(
       'QuickBooks disconnected',
@@ -332,7 +365,17 @@ app.listen(PORT, () => {
   console.log(`Jobber:     http://localhost:${PORT}/oauth/start`);
   console.log(`QuickBooks: http://localhost:${PORT}/qbo/auth`);
 
-  // Restore QBO access token from durable refresh token; keep it warm
+  // Restore sessions from durable refresh tokens; clear dead ones from Render
+  ensureJobberSession().then((result) => {
+    if (result.ok) {
+      console.log('Jobber session restored from refresh token');
+    } else if (result.reason === 'token_invalid') {
+      console.warn('Jobber refresh token invalid — reconnect at /oauth/start');
+    } else if (result.reason !== 'not_connected') {
+      console.warn('Jobber session restore:', result.reason, result.error || '');
+    }
+  });
+
   ensureQboSession().then((result) => {
     if (result.ok) {
       console.log('QBO session restored from refresh token');

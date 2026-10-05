@@ -1,7 +1,8 @@
 {
   "type": "module",
   "scripts": {
-    "start": "node jobber-mcp.js"
+    "start": "node jobber-mcp.js",
+    "test": "node src/services/bankStaging.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

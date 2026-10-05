@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { persistEnvVars } from '../src/lib/durableTokens.js';
+import { persistEnvVars, clearEnvVars } from '../src/lib/durableTokens.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_PATH = path.join(__dirname, '..', '.jobber-tokens.json');
@@ -69,13 +69,32 @@ export async function saveTokens({ accessToken, refreshToken }) {
   return payload;
 }
 
-export function clearTokens() {
+export async function clearTokens({ clearDurable = true } = {}) {
   if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
   delete process.env.JOBBER_ACCESS_TOKEN;
   delete process.env.JOBBER_REFRESH_TOKEN;
+  if (clearDurable) {
+    return clearEnvVars(['JOBBER_REFRESH_TOKEN', 'JOBBER_ACCESS_TOKEN']);
+  }
+  return { cleared: ['JOBBER_REFRESH_TOKEN', 'JOBBER_ACCESS_TOKEN'] };
 }
 
 export function hasTokens() {
   const tokens = loadTokens();
   return Boolean(tokens?.refreshToken || tokens?.accessToken);
+}
+
+export function getJobberAuthStatus() {
+  const tokens = loadTokens();
+  if (!tokens?.refreshToken && !tokens?.accessToken) {
+    return { connected: false, reason: 'not_connected' };
+  }
+  return {
+    connected: true,
+    reason: 'token_present',
+    hasRefreshToken: Boolean(tokens.refreshToken),
+    hasAccessToken: Boolean(tokens.accessToken),
+    // Callers should use probeJobberAuth() to know if the refresh token still works
+    validated: false,
+  };
 }

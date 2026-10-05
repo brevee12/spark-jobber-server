@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { readJson, writeJson, deleteJson } from '../lib/jsonStore.js';
-import { persistEnvVars } from '../lib/durableTokens.js';
+import { persistEnvVars, clearEnvVars } from '../lib/durableTokens.js';
 
 const TOKEN_FILE = '.qbo-tokens.json';
 const AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
@@ -173,13 +173,31 @@ export async function saveQboTokens(tokens) {
   return payload;
 }
 
-export function clearQboTokens() {
+export async function clearQboTokens({ clearDurable = true } = {}) {
   deleteJson(TOKEN_FILE);
   delete process.env.QBO_ACCESS_TOKEN;
   delete process.env.QBO_REFRESH_TOKEN;
   delete process.env.QBO_REALM_ID;
   delete process.env.QBO_EXPIRES_AT;
   delete process.env.QBO_REFRESH_EXPIRES_AT;
+  if (clearDurable) {
+    return clearEnvVars([
+      'QBO_REFRESH_TOKEN',
+      'QBO_ACCESS_TOKEN',
+      'QBO_REALM_ID',
+      'QBO_EXPIRES_AT',
+      'QBO_REFRESH_EXPIRES_AT',
+    ]);
+  }
+  return {
+    cleared: [
+      'QBO_REFRESH_TOKEN',
+      'QBO_ACCESS_TOKEN',
+      'QBO_REALM_ID',
+      'QBO_EXPIRES_AT',
+      'QBO_REFRESH_EXPIRES_AT',
+    ],
+  };
 }
 
 export function hasQboTokens() {
@@ -325,7 +343,7 @@ export async function refreshQboAccessToken() {
         err.code === 'invalid_grant' ||
         /invalid_grant/i.test(err.message || '')
       ) {
-        clearQboTokens();
+        await clearQboTokens({ clearDurable: true });
         throw new Error(
           'QuickBooks refresh token is no longer valid (revoked, expired, or already used). Reconnect at /qbo/auth'
         );
