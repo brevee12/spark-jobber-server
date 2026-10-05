@@ -14,7 +14,7 @@ function assertEq(actual, expected, label) {
   }
 }
 
-// Fastool PayPal refund on Spark Cash — never post via API; category 110.
+// Fastool PayPal refund on Spark Cash — Banking feed preferred; CreditCardCredit ahead-of-feed.
 {
   const tx = stageBankTransaction({
     id: '1',
@@ -24,11 +24,28 @@ function assertEq(actual, expected, label) {
     description: 'PAYPAL *FASTOOL INC FA',
   });
   assertEq(tx.doNotPostViaApi, true, 'fastool refund doNotPostViaApi');
-  assertEq(tx.qboWriteTool, null, 'fastool refund qboWriteTool');
+  assertEq(tx.qboWriteTool, 'create_credit_card_credit', 'fastool refund qboWriteTool');
   assertEq(tx.suggestedCategory, '110 – Small Tools & Equipment', 'fastool category');
   assert(tx.accountKind === 'credit_card', 'fastool accountKind');
   assert(/Banking feed/i.test(tx.treatment), 'fastool treatment mentions Banking feed');
-  assert(!/qbo_create_deposit/i.test(tx.treatment) || /Do NOT call qbo_create/i.test(tx.treatment), 'fastool warns against write tools');
+  assert(/create_credit_card_credit/i.test(tx.treatment), 'fastool mentions CreditCardCredit op');
+  assert(/Error 6000/i.test(tx.treatment), 'fastool warns Error 6000');
+  assert(/Error 6430/i.test(tx.treatment), 'fastool warns Error 6430');
+}
+
+// Walmart CC refund — same Banking-feed / CreditCardCredit policy; supplies category.
+{
+  const tx = stageBankTransaction({
+    id: '2',
+    accountName: 'Spark Cash Plus (4558)',
+    date: '2026-09-22',
+    amount: '25.12',
+    description: 'WALMART REFUND',
+  });
+  assertEq(tx.doNotPostViaApi, true, 'walmart refund doNotPostViaApi');
+  assertEq(tx.qboWriteTool, 'create_credit_card_credit', 'walmart refund qboWriteTool');
+  assert(/Supplies/i.test(tx.suggestedCategory), 'walmart category');
+  assert(/Banking feed/i.test(tx.treatment), 'walmart treatment mentions Banking feed');
 }
 
 // CC charge — prefer feed; expense tool only as ahead-of-feed option.
@@ -106,7 +123,11 @@ function assertEq(actual, expected, label) {
   assertEq(report.accountCount, 2, 'accountCount');
   assertEq(report.transactionCount, 2, 'transactionCount');
   assert(report.policy?.creditCardCredits, 'policy.creditCardCredits');
-  assert(/Never post CC refunds/i.test(report.policy.creditCardCredits), 'policy text');
+  assert(/Banking feed/i.test(report.policy.creditCardCredits), 'policy prefers Banking feed');
+  assert(
+    /create_credit_card_credit/i.test(report.policy.creditCardCredits),
+    'policy documents CreditCardCredit op'
+  );
 }
 
 console.log('bankStaging.test.js: all assertions passed');

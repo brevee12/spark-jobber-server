@@ -546,6 +546,8 @@ function inferPaymentType(paymentAccountId, explicit) {
 
 /**
  * Create a QBO Purchase (expense / check / CC charge).
+ * For card refunds use postQboCreditCardCredit (Purchase with Credit:true) —
+ * negative Purchase amounts are rejected (Error 6000).
  */
 export async function postQboExpense({
   accountId,
@@ -564,6 +566,11 @@ export async function postQboExpense({
   if (!categoryAccountId) throw new Error('categoryAccountId is required');
   if (amount == null || Number.isNaN(Number(amount))) {
     throw new Error('amount is required');
+  }
+  if (Number(amount) < 0) {
+    throw new Error(
+      'Purchase amount must be positive. For credit-card refunds use create_credit_card_credit (Credit:true), not a negative expense.'
+    );
   }
 
   const type = inferPaymentType(payAccount, paymentType);
@@ -617,9 +624,127 @@ export async function postQboExpense({
 }
 
 /**
- * Create a QBO Bank Deposit (incoming funds: owner loans, refunds, non-invoice income).
+ * Build QBO Purchase payload for a credit-card credit (refund/return).
+ * QBO requires PaymentType CreditCard + Credit:true with a positive amount —
+ * Deposit cannot target a CC liability (Error 6430) and negative Purchase fails (Error 6000).
+ */
+export function buildCreditCardCreditPayload({
+  paymentAccountId,
+  accountId,
+  categoryAccountId,
+  amount,
+  txnDate,
+  memo,
+  entityRef,
+}) {
+  const payAccount = paymentAccountId || accountId;
+  if (!payAccount) throw new Error('paymentAccountId is required (credit card liability account)');
+  if (!categoryAccountId) throw new Error('categoryAccountId is required (original expense account)');
+  if (amount == null || Number.isNaN(Number(amount))) {
+    throw new Error('amount is required');
+  }
+  const amt = Math.abs(Number(amount));
+  if (amt === 0) throw new Error('amount must be non-zero');
+
+  const payload = {
+    PaymentType: 'CreditCard',
+    Credit: true,
+    AccountRef: { value: String(payAccount) },
+    TxnDate: txnDate || new Date().toISOString().slice(0, 10),
+    PrivateNote: memo || undefined,
+    Line: [
+      {
+        Amount: amt,
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Description: memo || undefined,
+        AccountBasedExpenseLineDetail: {
+          AccountRef: { value: String(categoryAccountId) },
+        },
+      },
+    ],
+  };
+
+  if (entityRef) payload.EntityRef = entityRef;
+  return payload;
+}
+
+/**
+ * Create a QBO credit-card credit (vendor/merchant refund on a CC account).
+ * Posts Purchase with PaymentType CreditCard and Credit:true.
+ * Prefer matching in the QBO Banking feed when the feed line is still open
+ * to avoid duplicates; use this when intentionally posting ahead of the feed.
+ */
+export async function postQboCreditCardCredit({
+  accountId,
+  paymentAccountId,
+  categoryAccountId,
+  vendorName,
+  payeeName,
+  amount,
+  txnDate,
+  memo,
+}) {
+  const payAccount = paymentAccountId || accountId;
+  // Validate before token fetch so unit tests can cover required fields offline.
+  buildCreditCardCreditPayload({
+    paymentAccountId: payAccount,
+    categoryAccountId,
+    amount,
+    txnDate,
+    memo,
+  });
+
+  const tokens = await getValidAccessToken();
+  const entityName = payeeName || vendorName || undefined;
+  let entityRef;
+
+  if (entityName) {
+    const safe = String(entityName).replace(/'/g, "\\'");
+    const vendors = await qboQuery(
+      `SELECT Id, DisplayName FROM Vendor WHERE DisplayName = '${safe}' MAXRESULTS 1`
+    );
+    const vendor = vendors.Vendor?.[0];
+    if (vendor?.Id) {
+      entityRef = { value: String(vendor.Id), name: vendor.DisplayName, type: 'Vendor' };
+    } else {
+      entityRef = { name: entityName, type: 'Vendor' };
+    }
+  }
+
+  const payload = buildCreditCardCreditPayload({
+    paymentAccountId: payAccount,
+    categoryAccountId,
+    amount,
+    txnDate,
+    memo,
+    entityRef,
+  });
+
+  const data = await qboRequest(
+    'POST',
+    `/v3/company/${tokens.realmId}/purchase`,
+    { body: payload }
+  );
+
+  const purchase = data?.Purchase;
+  return {
+    id: purchase?.Id,
+    syncToken: purchase?.SyncToken,
+    paymentType: purchase?.PaymentType || 'CreditCard',
+    credit: purchase?.Credit === true || purchase?.Credit === 'true' || true,
+    totalAmt: purchase?.TotalAmt,
+    txnDate: purchase?.TxnDate,
+    paymentAccountId: purchase?.AccountRef?.value || String(payAccount),
+    status: purchase?.Id ? 'created' : 'unknown',
+  };
+}
+
+/**
+ * Create a QBO Bank Deposit (incoming funds: owner loans, bank refunds, non-invoice income).
  * depositAccountId = bank/checking receiving the money
  * sourceAccountId  = equity/liability/income account the money comes from (e.g. Loan from Shareholder)
+ * Do NOT use for credit-card refunds — Deposit cannot target a Credit Card liability (Error 6430);
+ * use postQboCreditCardCredit instead.
  */
 export async function postQboDeposit({
   depositAccountId,

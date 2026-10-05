@@ -19,6 +19,7 @@ import {
   getSherwinWilliamsBills,
   postQboExpense,
   postQboDeposit,
+  postQboCreditCardCredit,
   postQboTransfer,
   deleteQboTransaction,
   getQboAccounts,
@@ -177,6 +178,7 @@ async function runJobberBatch(actions = []) {
 const QBO_WRITE_OPS = [
   'create_expense',
   'create_deposit',
+  'create_credit_card_credit',
   'create_transfer',
   'delete_transaction',
 ];
@@ -206,6 +208,16 @@ async function runQboAction(action = {}) {
         amount: action.amount,
         txnDate: action.txnDate,
         payeeName: action.payeeName,
+        memo: action.memo,
+      });
+    case 'create_credit_card_credit':
+    case 'credit_card_credit':
+      return postQboCreditCardCredit({
+        paymentAccountId: action.paymentAccountId || action.accountId,
+        categoryAccountId: action.categoryAccountId,
+        amount: action.amount,
+        txnDate: action.txnDate,
+        payeeName: action.payeeName || action.vendorName,
         memo: action.memo,
       });
     case 'create_transfer':
@@ -426,7 +438,7 @@ export const toolDefinitions = [
   {
     name: 'bookkeeping_review',
     description:
-      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated doNotPostViaApi — clear those in the QBO Banking feed only. Does NOT create/edit/delete anything in QuickBooks — apply writes with qbo_batch (one Allow for the whole posting set).',
+      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated doNotPostViaApi — prefer clearing those in the QBO Banking feed; only use qbo_batch create_credit_card_credit when intentionally posting ahead of the feed. Does NOT create/edit/delete anything in QuickBooks — apply writes with qbo_batch (one Allow for the whole posting set).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -496,7 +508,7 @@ export const toolDefinitions = [
   {
     name: 'qbo_batch',
     description:
-      'PREFERRED QuickBooks WRITE tool. Post many expenses/deposits/transfers/deletes in ONE call (one Allow). Pass actions: [{ op, ...fields }] where op is create_expense | create_deposit | create_transfer | delete_transaction. Bundle every QBO posting for the session here instead of one tool call per transaction. Skip rows marked doNotPostViaApi from bookkeeping_review (CC refunds → Banking feed). Does NOT call Jobber (use jobber_batch).',
+      'PREFERRED QuickBooks WRITE tool. Post many expenses/deposits/CC credits/transfers/deletes in ONE call (one Allow). Pass actions: [{ op, ...fields }] where op is create_expense | create_deposit | create_credit_card_credit | create_transfer | delete_transaction. Bundle every QBO posting for the session here instead of one tool call per transaction. Skip rows marked doNotPostViaApi from bookkeeping_review when the Banking feed line is still open (CC refunds → match in feed preferred; create_credit_card_credit only ahead-of-feed). Does NOT call Jobber (use jobber_batch).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -508,15 +520,27 @@ export const toolDefinitions = [
             properties: {
               op: {
                 type: 'string',
-                description: `Operation: ${QBO_WRITE_OPS.join(' | ')}`,
+                description: `Operation: ${QBO_WRITE_OPS.join(' | ')}. create_credit_card_credit = Purchase with PaymentType CreditCard + Credit:true (card refunds; positive amount).`,
               },
-              paymentAccountId: { type: 'string' },
-              categoryAccountId: { type: 'string' },
+              paymentAccountId: {
+                type: 'string',
+                description:
+                  'For create_expense / create_credit_card_credit: bank or credit-card account Id (CC liability for refunds).',
+              },
+              categoryAccountId: {
+                type: 'string',
+                description:
+                  'Expense/category account Id (for CC refunds: same account as the original purchase).',
+              },
               depositAccountId: { type: 'string' },
               sourceAccountId: { type: 'string' },
               fromAccountId: { type: 'string' },
               toAccountId: { type: 'string' },
-              amount: { type: 'number' },
+              amount: {
+                type: 'number',
+                description:
+                  'Positive amount. For create_credit_card_credit, sign is ignored (absolute value used with Credit:true).',
+              },
               txnDate: { type: 'string' },
               payeeName: { type: 'string' },
               memo: { type: 'string' },
@@ -567,6 +591,14 @@ export async function callTool(name, args = {}) {
           ...args,
         });
         return ok(deposit);
+      }
+
+      case 'qbo_create_credit_card_credit': {
+        const credit = await runQboAction({
+          op: 'create_credit_card_credit',
+          ...args,
+        });
+        return ok(credit);
       }
 
       case 'qbo_create_transfer': {

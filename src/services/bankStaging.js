@@ -1,7 +1,8 @@
 /**
  * Annotate SimpleFIN bank rows with CFO staging hints for Spark.
- * Credits on credit-card accounts must never be posted via qbo_create_* —
- * clear them in the QBO Banking feed against the original expense account.
+ * Credits on credit-card accounts stay doNotPostViaApi (Banking feed preferred).
+ * Ahead-of-feed posting uses qbo_batch create_credit_card_credit
+ * (Purchase PaymentType CreditCard + Credit:true) — never Deposit or negative Purchase.
  */
 
 const CC_ACCOUNT_RE = /spark\s*cash|capital\s*one|credit\s*card|\bcc\b/i;
@@ -133,11 +134,13 @@ export function stageBankTransaction(tx = {}) {
       ...base,
       suggestedCategory: suggestedCategory || 'Original expense account (review)',
       doNotPostViaApi: true,
+      qboWriteTool: 'create_credit_card_credit',
       treatment:
         `${categoryNote || 'Card credit/refund'}. ` +
-        'QBO has no reliable MCP credit-card-credit write — clear this in the QBO Banking feed matched to the same expense account as the original purchase' +
+        'Prefer clearing in the QBO Banking feed matched to the same expense account as the original purchase' +
         (suggestedCategory ? ` (${suggestedCategory})` : '') +
-        '. Do NOT call qbo_create_expense or qbo_create_deposit (that would duplicate when the feed clears).',
+        '. Do NOT use create_expense (negative Purchase → Error 6000) or create_deposit (Deposit cannot target a CC liability → Error 6430). ' +
+        'If intentionally posting ahead of the feed, use qbo_batch op create_credit_card_credit (PaymentType CreditCard + Credit:true), then match (not re-create) when the feed clears.',
     };
   }
 
@@ -218,9 +221,9 @@ export function buildStagingReport(transactions = []) {
   return {
     policy: {
       creditCardCredits:
-        'Never post CC refunds/credits via qbo_create_expense or qbo_create_deposit. Clear in QBO Banking feed against the original expense account.',
+        'Prefer QBO Banking feed match against the original expense account (avoids duplicates). Do not use create_expense or create_deposit for CC refunds. Ahead-of-feed only: qbo_batch create_credit_card_credit (Purchase PaymentType CreditCard + Credit:true, positive amount).',
       creditCardCharges:
-        'Prefer QBO Banking feed categorization. qbo_create_expense only when intentionally posting ahead of the feed.',
+        'Prefer QBO Banking feed categorization. create_expense only when intentionally posting ahead of the feed.',
       transfers:
         'CC autopay pairs (checking debit + card credit) → Transfer, not expense/deposit.',
     },
