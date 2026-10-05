@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { saveTokens, loadTokens } from './tokenStore.js';
+import { saveTokens, loadTokens, clearTokens, getJobberAuthStatus } from './tokenStore.js';
 
 const AUTHORIZE_URL = 'https://api.getjobber.com/api/oauth/authorize';
 const TOKEN_URL = 'https://api.getjobber.com/api/oauth/token';
@@ -71,10 +71,21 @@ async function tokenRequest(body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = data.error_description || data.error || res.statusText;
-    throw new Error(`Jobber token exchange failed: ${detail}`);
+    const err = new Error(`Jobber token exchange failed: ${detail}`);
+    err.status = res.status;
+    err.code = data.error || null;
+    throw err;
   }
 
   return data;
+}
+
+function isInvalidGrant(err) {
+  return (
+    err?.status === 401 ||
+    err?.code === 'invalid_grant' ||
+    /unauthorized|invalid_grant|invalid.?token/i.test(err?.message || '')
+  );
 }
 
 export async function exchangeCodeForTokens(code, state) {
@@ -110,16 +121,63 @@ export async function refreshAccessToken() {
     throw new Error('No Jobber refresh token. Visit /oauth/start to connect.');
   }
 
-  const data = await tokenRequest({
-    grant_type: 'refresh_token',
-    refresh_token: current.refreshToken,
-    client_id: clientId,
-    client_secret: clientSecret,
-  });
+  try {
+    const data = await tokenRequest({
+      grant_type: 'refresh_token',
+      refresh_token: current.refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
 
-  // Jobber rotates refresh tokens — always persist both
-  return saveTokens({
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token || current.refreshToken,
-  });
+    // Jobber rotates refresh tokens — always persist both (and durable-sync)
+    return saveTokens({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || current.refreshToken,
+    });
+  } catch (err) {
+    if (isInvalidGrant(err)) {
+      // Dead refresh token in Render env is the usual loop: health says
+      // connected, every tool call returns Unauthorized until reauth.
+      await clearTokens({ clearDurable: true });
+      throw new Error(
+        'Jobber refresh token is no longer valid (revoked, expired, or already rotated). Reconnect at /oauth/start'
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Boot / health: prove the stored refresh token still works.
+ * Clears durable dead tokens so redeploys stop reloading Unauthorized.
+ */
+export async function ensureJobberSession() {
+  const status = getJobberAuthStatus();
+  if (!status.connected) {
+    return { ok: false, ...status };
+  }
+
+  const current = loadTokens();
+  if (current?.accessToken && current.refreshToken) {
+    // Access token presence is not proof — always refresh once on boot
+    // so we detect rotated-away secrets immediately.
+  }
+
+  try {
+    await refreshAccessToken();
+    return { ok: true, connected: true, reason: 'refreshed', validated: true };
+  } catch (err) {
+    return {
+      ok: false,
+      connected: false,
+      reason: 'token_invalid',
+      validated: true,
+      error: err.message,
+      reconnect: '/oauth/start',
+    };
+  }
+}
+
+export async function probeJobberAuth() {
+  return ensureJobberSession();
 }

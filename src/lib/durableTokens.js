@@ -103,3 +103,60 @@ export async function persistEnvVars(vars, { onlyIfChanged = true } = {}) {
     return { synced: false, updated, skipped, error: err.message };
   }
 }
+
+/**
+ * Remove durable secrets from this process and from Render env.
+ * Needed when a refresh token is revoked — otherwise the next deploy
+ * reloads the dead token and every call returns Unauthorized again.
+ *
+ * @param {string[]} keys
+ * @returns {Promise<{ cleared: string[], error?: string }>}
+ */
+export async function clearEnvVars(keys = []) {
+  const cleared = [];
+  for (const key of keys) {
+    if (!key) continue;
+    delete process.env[key];
+    delete lastSyncedValues[key];
+    cleared.push(key);
+  }
+
+  if (!cleared.length) return { cleared: [] };
+  if (!durableSyncConfigured()) {
+    return {
+      cleared,
+      error:
+        'Set RENDER_API_KEY and RENDER_SERVICE_ID to clear dead tokens from Render env',
+    };
+  }
+
+  const apiKey = process.env.RENDER_API_KEY;
+  const serviceId = process.env.RENDER_SERVICE_ID;
+
+  try {
+    for (const key of cleared) {
+      const res = await fetch(
+        `https://api.render.com/v1/services/${serviceId}/env-vars/${encodeURIComponent(key)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'application/json',
+          },
+        }
+      );
+      // 404 = already gone — treat as success
+      if (!res.ok && res.status !== 404) {
+        const body = await res.text().catch(() => '');
+        throw new Error(
+          `Render env delete failed for ${key} (${res.status}): ${body.slice(0, 200)}`
+        );
+      }
+    }
+    console.log(`Durable token clear OK: ${cleared.join(', ')}`);
+    return { cleared };
+  } catch (err) {
+    console.error('Durable token clear failed:', err.message);
+    return { cleared, error: err.message };
+  }
+}
