@@ -20,7 +20,8 @@ const CATEGORY_RULES = [
     note: 'Paint & supplies — match bill or expense account used for Sherwin',
   },
   {
-    test: /jobber/i,
+    // Jobber SaaS charge only — exclude payouts/deposits like "JOBBER PAYOUT".
+    test: /jobber(?!.*\b(payout|payment|deposit|xfer|transfer)\b)/i,
     category: 'Software / Subscriptions',
     note: 'Jobber SaaS subscription',
   },

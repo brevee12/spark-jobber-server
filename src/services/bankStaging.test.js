@@ -66,6 +66,27 @@ function assertEq(actual, expected, label) {
   assert(/Transfer/i.test(tx.treatment), 'cc payment credit treatment');
 }
 
+// Jobber SaaS charge vs Jobber payout deposit (must not share Software category).
+{
+  const saas = stageBankTransaction({
+    accountName: 'Spark Cash Plus',
+    amount: '-129.00',
+    description: 'JOBBER.COM SUBSCRIPTION',
+  });
+  assertEq(saas.suggestedCategory, 'Software / Subscriptions', 'jobber saas category');
+
+  const payout = stageBankTransaction({
+    accountName: 'Operating Checking',
+    amount: '1200.00',
+    description: 'JOBBER PAYOUT',
+  });
+  assertEq(
+    payout.suggestedCategory,
+    'Income / Undeposited Funds (review)',
+    'jobber payout must not be Software'
+  );
+}
+
 // Report groups by account and exposes policy guardrails.
 {
   const report = buildStagingReport([
