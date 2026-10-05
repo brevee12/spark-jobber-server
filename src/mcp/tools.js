@@ -174,9 +174,95 @@ async function runJobberBatch(actions = []) {
   };
 }
 
+const QBO_WRITE_OPS = [
+  'create_expense',
+  'create_deposit',
+  'create_transfer',
+  'delete_transaction',
+];
+
+/**
+ * Run one QBO write op. Throws on failure (caller records per-action errors).
+ */
+async function runQboAction(action = {}) {
+  const op = String(action.op || action.action || '').trim();
+  if (!op) throw new Error('Each action needs op');
+
+  switch (op) {
+    case 'create_expense':
+      return postQboExpense({
+        paymentAccountId: action.paymentAccountId,
+        categoryAccountId: action.categoryAccountId,
+        amount: action.amount,
+        txnDate: action.txnDate,
+        payeeName: action.payeeName,
+        memo: action.memo,
+        paymentType: action.paymentType,
+      });
+    case 'create_deposit':
+      return postQboDeposit({
+        depositAccountId: action.depositAccountId,
+        sourceAccountId: action.sourceAccountId,
+        amount: action.amount,
+        txnDate: action.txnDate,
+        payeeName: action.payeeName,
+        memo: action.memo,
+      });
+    case 'create_transfer':
+      return postQboTransfer({
+        fromAccountId: action.fromAccountId,
+        toAccountId: action.toAccountId,
+        amount: action.amount,
+        txnDate: action.txnDate,
+        memo: action.memo,
+      });
+    case 'delete_transaction':
+      return deleteQboTransaction({
+        transactionId: action.transactionId || action.id,
+        transactionType: action.transactionType,
+      });
+    default:
+      throw new Error(
+        `Unknown QBO op "${op}". Use one of: ${QBO_WRITE_OPS.join(', ')}`
+      );
+  }
+}
+
+/**
+ * Execute many QBO writes under a single MCP Allow.
+ * Continues after per-action failures so one bad row doesn't abort the batch.
+ */
+export async function runQboBatch(actions = []) {
+  if (!Array.isArray(actions) || actions.length === 0) {
+    throw new Error('Provide actions: [{ op, ...params }, ...]');
+  }
+  if (actions.length > 40) {
+    throw new Error('Max 40 QBO write actions per batch');
+  }
+
+  const results = [];
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i] || {};
+    const op = action.op || action.action || null;
+    try {
+      const data = await runQboAction(action);
+      results.push({ index: i, op, ok: true, data });
+    } catch (err) {
+      results.push({ index: i, op, ok: false, error: err.message });
+    }
+  }
+
+  return {
+    count: results.length,
+    succeeded: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+  };
+}
+
 /**
  * Read-only bookkeeping snapshot for scheduled CFO reviews.
- * Does NOT write to QuickBooks (QBO writes stay on separate tools).
+ * Does NOT write to QuickBooks (QBO writes stay on qbo_batch).
  */
 async function runBookkeepingReview(args = {}) {
   const out = {
@@ -277,7 +363,7 @@ export const toolDefinitions = [
   {
     name: 'jobber_batch',
     description:
-      'PREFERRED Jobber tool. Run multiple Jobber reads/writes in ONE call (one Allow): search jobs, search invoices, get job/invoice/quote, create client/quote/expense, delete expense, schedule visit. Pass actions: [{ op, ...fields }]. Does NOT write to QuickBooks.',
+      'PREFERRED Jobber tool. Run multiple Jobber reads/writes in ONE call (one Allow): search jobs, search invoices, get job/invoice/quote, create client/quote/expense, delete expense, schedule visit. Pass actions: [{ op, ...fields }]. Bundle every Jobber change for the session here — do not call one-off Jobber tools. Does NOT write to QuickBooks (use qbo_batch).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -340,7 +426,7 @@ export const toolDefinitions = [
   {
     name: 'bookkeeping_review',
     description:
-      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated doNotPostViaApi — clear those in the QBO Banking feed only. Does NOT create/edit/delete anything in QuickBooks — use qbo_create_* / qbo_delete_transaction for writes (separate Allow).',
+      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated doNotPostViaApi — clear those in the QBO Banking feed only. Does NOT create/edit/delete anything in QuickBooks — apply writes with qbo_batch (one Allow for the whole posting set).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -408,98 +494,41 @@ export const toolDefinitions = [
     },
   },
   {
-    name: 'qbo_create_expense',
+    name: 'qbo_batch',
     description:
-      'WRITE to QuickBooks: create a Purchase (check/CC charge only — positive expense amounts). Never use for credit-card refunds/credits (positive amounts on a CC account); those must be cleared in the QBO Banking feed against the original expense account. Requires its own Allow — do not batch with Jobber.',
+      'PREFERRED QuickBooks WRITE tool. Post many expenses/deposits/transfers/deletes in ONE call (one Allow). Pass actions: [{ op, ...fields }] where op is create_expense | create_deposit | create_transfer | delete_transaction. Bundle every QBO posting for the session here instead of one tool call per transaction. Skip rows marked doNotPostViaApi from bookkeeping_review (CC refunds → Banking feed). Does NOT call Jobber (use jobber_batch).',
     inputSchema: {
       type: 'object',
       properties: {
-        paymentAccountId: {
-          type: 'string',
-          description: 'QBO bank or credit-card Account Id used to pay',
-        },
-        categoryAccountId: {
-          type: 'string',
-          description: 'QBO expense Account Id for categorization',
-        },
-        amount: { type: 'number', description: 'Expense amount' },
-        txnDate: { type: 'string', description: 'YYYY-MM-DD (optional)' },
-        payeeName: { type: 'string', description: 'Vendor / payee name' },
-        memo: { type: 'string', description: 'Memo / private note' },
-        paymentType: {
-          type: 'string',
-          description: "Optional: 'Check' or 'CreditCard' (auto-inferred if omitted)",
-        },
-      },
-      required: ['paymentAccountId', 'categoryAccountId', 'amount'],
-    },
-  },
-  {
-    name: 'qbo_create_deposit',
-    description:
-      'WRITE to QuickBooks: create a Bank Deposit into a checking/bank account (owner loans, non-invoice income). Never use for credit-card refunds — CC credits are not bank deposits; clear them in the QBO Banking feed. Requires its own Allow — do not batch with Jobber.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        depositAccountId: {
-          type: 'string',
-          description: 'QBO bank/checking Account Id receiving the deposit',
-        },
-        sourceAccountId: {
-          type: 'string',
-          description:
-            'QBO source Account Id (e.g. Loan from Shareholder, Other Income)',
-        },
-        amount: { type: 'number', description: 'Deposit amount' },
-        txnDate: { type: 'string', description: 'YYYY-MM-DD (optional)' },
-        payeeName: {
-          type: 'string',
-          description: 'Optional received-from name (Vendor or Customer)',
-        },
-        memo: { type: 'string', description: 'Memo / private note' },
-      },
-      required: ['depositAccountId', 'sourceAccountId', 'amount'],
-    },
-  },
-  {
-    name: 'qbo_create_transfer',
-    description:
-      'WRITE to QuickBooks: transfer between accounts (CC autopay Checking→Capital One, LOC draw/paydown). Preferred API write for credit-card payments. Requires its own Allow.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        fromAccountId: {
-          type: 'string',
-          description: 'QBO Account Id money leaves',
-        },
-        toAccountId: {
-          type: 'string',
-          description: 'QBO Account Id money enters',
-        },
-        amount: { type: 'number', description: 'Transfer amount' },
-        txnDate: { type: 'string', description: 'YYYY-MM-DD (optional)' },
-        memo: { type: 'string', description: 'Memo / private note' },
-      },
-      required: ['fromAccountId', 'toAccountId', 'amount'],
-    },
-  },
-  {
-    name: 'qbo_delete_transaction',
-    description:
-      'WRITE to QuickBooks: delete a Purchase or Deposit. Requires its own Allow.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        transactionId: {
-          type: 'string',
-          description: 'QBO transaction Id',
-        },
-        transactionType: {
-          type: 'string',
-          description: "'purchase' or 'deposit'",
+        actions: {
+          type: 'array',
+          description: `QBO write ops in order (max 40). op must be one of: ${QBO_WRITE_OPS.join(', ')}`,
+          items: {
+            type: 'object',
+            properties: {
+              op: {
+                type: 'string',
+                description: `Operation: ${QBO_WRITE_OPS.join(' | ')}`,
+              },
+              paymentAccountId: { type: 'string' },
+              categoryAccountId: { type: 'string' },
+              depositAccountId: { type: 'string' },
+              sourceAccountId: { type: 'string' },
+              fromAccountId: { type: 'string' },
+              toAccountId: { type: 'string' },
+              amount: { type: 'number' },
+              txnDate: { type: 'string' },
+              payeeName: { type: 'string' },
+              memo: { type: 'string' },
+              paymentType: { type: 'string' },
+              transactionId: { type: 'string' },
+              transactionType: { type: 'string' },
+            },
+            required: ['op'],
+          },
         },
       },
-      required: ['transactionId', 'transactionType'],
+      required: ['actions'],
     },
   },
 ];
@@ -518,47 +547,40 @@ export async function callTool(name, args = {}) {
         return ok(review);
       }
 
-      // --- QBO writes (separate Allows) ---
+      case 'qbo_batch': {
+        const batch = await runQboBatch(args.actions);
+        return ok(batch);
+      }
+
+      // --- Legacy single QBO writes (hidden from ListTools; still work if Spark caches old names) ---
       case 'qbo_create_expense': {
-        const created = await postQboExpense({
-          paymentAccountId: args.paymentAccountId,
-          categoryAccountId: args.categoryAccountId,
-          amount: args.amount,
-          txnDate: args.txnDate,
-          payeeName: args.payeeName,
-          memo: args.memo,
-          paymentType: args.paymentType,
+        const created = await runQboAction({
+          op: 'create_expense',
+          ...args,
         });
         return ok(created);
       }
 
       case 'qbo_create_deposit': {
-        const deposit = await postQboDeposit({
-          depositAccountId: args.depositAccountId,
-          sourceAccountId: args.sourceAccountId,
-          amount: args.amount,
-          txnDate: args.txnDate,
-          payeeName: args.payeeName,
-          memo: args.memo,
+        const deposit = await runQboAction({
+          op: 'create_deposit',
+          ...args,
         });
         return ok(deposit);
       }
 
       case 'qbo_create_transfer': {
-        const transfer = await postQboTransfer({
-          fromAccountId: args.fromAccountId,
-          toAccountId: args.toAccountId,
-          amount: args.amount,
-          txnDate: args.txnDate,
-          memo: args.memo,
+        const transfer = await runQboAction({
+          op: 'create_transfer',
+          ...args,
         });
         return ok(transfer);
       }
 
       case 'qbo_delete_transaction': {
-        const deleted = await deleteQboTransaction({
-          transactionId: args.transactionId,
-          transactionType: args.transactionType,
+        const deleted = await runQboAction({
+          op: 'delete_transaction',
+          ...args,
         });
         return ok(deleted);
       }
