@@ -119,29 +119,74 @@ function formatCashLines(cash) {
   return lines;
 }
 
-function formatItemText(item) {
-  const flags = [];
-  if (item.doNotPostViaApi) flags.push('feed-only');
-  if (item.qboWriteTool) flags.push(item.qboWriteTool);
-  const lines = [`${item.n}. ${item.label}`];
-  if (item.category) lines.push(`   Category: ${item.category}`);
-  if (item.treatment) lines.push(`   ${item.treatment}`);
-  if (flags.length) lines.push(`   [${flags.join(' · ')}]`);
+function itemAmount(item) {
+  return money(item.tx?.amountSigned ?? item.tx?.amount);
+}
+
+function itemDescription(item) {
+  return String(item.tx?.description || '').trim() || '(no description)';
+}
+
+function itemDate(item) {
+  return fmtDate(item.tx?.date);
+}
+
+function itemCategory(item) {
+  return item.category || '(review)';
+}
+
+/** Plain-text table for one account subsection (# = global approve number). */
+function formatAccountTableText(items) {
+  const rows = items.map((item) => ({
+    n: String(item.n),
+    date: itemDate(item),
+    desc: itemDescription(item),
+    amt: itemAmount(item),
+    cat: itemCategory(item),
+  }));
+  const cols = [
+    { key: 'n', title: '#', w: 4 },
+    { key: 'date', title: 'Date', w: 10 },
+    { key: 'desc', title: 'Description', w: 36 },
+    { key: 'amt', title: 'Amount', w: 12 },
+    { key: 'cat', title: 'Suggested category', w: 28 },
+  ];
+  const pad = (s, w) => {
+    const str = String(s);
+    return str.length > w ? `${str.slice(0, w - 1)}…` : str.padEnd(w);
+  };
+  const lines = [];
+  lines.push(cols.map((c) => pad(c.title, c.w)).join('  '));
+  lines.push(cols.map((c) => '-'.repeat(Math.min(c.w, 40))).join('  '));
+  for (const row of rows) {
+    lines.push(cols.map((c) => pad(row[c.key], c.w)).join('  '));
+  }
   return lines;
 }
 
-function formatItemHtml(item) {
-  const meta = [];
-  if (item.category) meta.push(`<strong>${esc(item.category)}</strong>`);
-  if (item.doNotPostViaApi) meta.push('feed-only');
-  if (item.qboWriteTool) meta.push(esc(item.qboWriteTool));
-  return `<li value="${item.n}"><code>${esc(item.label)}</code>${
-    meta.length ? `<br/><span style="color:#444">${meta.join(' · ')}</span>` : ''
-  }${
-    item.treatment
-      ? `<br/><span style="color:#555">${esc(item.treatment)}</span>`
-      : ''
-  }</li>`;
+function formatAccountTableHtml(items) {
+  const body = items
+    .map(
+      (item) =>
+        `<tr>` +
+        `<td style="padding:4px 8px;border:1px solid #ddd;text-align:right;color:#666">${item.n}</td>` +
+        `<td style="padding:4px 8px;border:1px solid #ddd;white-space:nowrap">${esc(itemDate(item))}</td>` +
+        `<td style="padding:4px 8px;border:1px solid #ddd">${esc(itemDescription(item))}</td>` +
+        `<td style="padding:4px 8px;border:1px solid #ddd;white-space:nowrap;text-align:right">${esc(itemAmount(item))}</td>` +
+        `<td style="padding:4px 8px;border:1px solid #ddd">${esc(itemCategory(item))}</td>` +
+        `</tr>`
+    )
+    .join('');
+  return `<table style="border-collapse:collapse;width:100%;font-size:.9rem;margin:0 0 .75rem">
+<thead><tr>
+<th style="padding:4px 8px;border:1px solid #ddd;text-align:right;background:#f5f5f5">#</th>
+<th style="padding:4px 8px;border:1px solid #ddd;text-align:left;background:#f5f5f5">Date</th>
+<th style="padding:4px 8px;border:1px solid #ddd;text-align:left;background:#f5f5f5">Description</th>
+<th style="padding:4px 8px;border:1px solid #ddd;text-align:right;background:#f5f5f5">Amount</th>
+<th style="padding:4px 8px;border:1px solid #ddd;text-align:left;background:#f5f5f5">Suggested category</th>
+</tr></thead>
+<tbody>${body}</tbody>
+</table>`;
 }
 
 /**
@@ -200,9 +245,7 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
       textParts.push('');
       textParts.push(`### ${group.accountName}`);
       textParts.push(`  (${headerStats})`);
-      for (const item of group.items) {
-        textParts.push(...formatItemText(item));
-      }
+      textParts.push(...formatAccountTableText(group.items));
     }
     if (truncated > 0) {
       textParts.push('');
@@ -251,8 +294,8 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
         const headerStats = stats
           ? `${stats.need} need · ${stats.matched} matched in QBO · ${stats.feed} in feed`
           : `${group.items.length} need`;
-        const lis = group.items.map(formatItemHtml).join('');
-        return `<h3 style="font-size:1rem;margin:1.25rem 0 .25rem">${esc(group.accountName)}</h3><p style="margin:0 0 .4rem;color:#666;font-size:.9rem">${esc(headerStats)}</p><ol>${lis}</ol>`;
+        const table = formatAccountTableHtml(group.items);
+        return `<h3 style="font-size:1rem;margin:1.25rem 0 .25rem">${esc(group.accountName)}</h3><p style="margin:0 0 .4rem;color:#666;font-size:.9rem">${esc(headerStats)}</p>${table}`;
       })
       .join('');
     itemsHtml = `${sections}${
@@ -276,14 +319,14 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
     : '';
 
   const html = `<!DOCTYPE html>
-<html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111;max-width:42rem">
+<html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111;max-width:52rem">
 <h1 style="font-size:1.25rem;margin:0 0 .5rem">Veenstra Painting — bookkeeping brief</h1>
 <p style="margin:0 0 1rem;color:#555">Generated ${esc(generatedAt)}</p>
 <h2 style="font-size:1.05rem">§1 Cash snapshot</h2>
 ${cashHtml}
 ${sherwinCount != null ? `<p>Sherwin bills (open sample): ${sherwinCount}</p>` : ''}
 <h2 style="font-size:1.05rem">§2 Bank staging by account</h2>
-<p style="color:#444">Reply in Cursor with <code>approve N</code> / <code>skip N</code> (numbers are global across accounts).</p>
+<p style="color:#444">Reply in Cursor with <code>approve N</code> / <code>skip N</code> using the <strong>#</strong> column (global across accounts).</p>
 ${filterHtml}
 ${itemsHtml}
 <h2 style="font-size:1.05rem">§3 How to approve</h2>
