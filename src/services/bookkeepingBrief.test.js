@@ -83,6 +83,7 @@ assert(brief.text.includes('§1 Cash snapshot'), '§1');
 assert(brief.text.includes('§2 Bank staging by account'), '§2');
 assert(brief.text.includes('### EZ BUS'), 'checking subsection');
 assert(brief.text.includes('### CC-Capital One Spark'), 'cc subsection');
+assert(brief.groups?.every((g) => brief.text.includes(`### ${g.accountName}`)), 'account headers');
 assert(brief.text.includes('§3 How to approve'), '§3');
 assert(brief.text.includes('1. '), 'numbered 1');
 assert(brief.text.includes('CASEYS #3566'), 'payee in text');

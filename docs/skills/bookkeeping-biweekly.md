@@ -8,10 +8,10 @@ End goal: **twice a week** (Tue 11:59 PM / Fri 3:30 PM), stage only lines that s
 
 QuickBooks **For Review** is not available via the QBO API. So we:
 
-1. Pull SimpleFIN downloads for the lookback window (default last 14 days; catch-up may widen).
-2. Subtract rows already posted in QBO (`Purchase`, `Deposit`, `Transfer`, `JournalEntry`, `BillPayment`, `Payment`) by **amount + date (±1 day)**.
+1. Pull the **current SimpleFIN bank feed** per account (default lookback ~45 days so stalled accounts still show — e.g. Marion County checking’s ~31 open feed lines).
+2. Compare each feed line to posted QBO activity (`Purchase`, `Deposit`, `Transfer`, `JournalEntry`, `BillPayment`, `Payment`) by **amount + date (±1 day)** — same idea as QBO’s match vs categorize.
 3. Subtract rows already approved/skipped in email (`SIMPLEFIN_PROCESSED_IDS`).
-4. What’s left = needs a category suggestion for Brennan to clear in the QBO Banking feed (or approve a write when safe).
+4. **Only lines with no QBO match** are listed for approval (with category suggestions), grouped by account (`N need · M matched · F in feed`).
 
 ## Report shape
 

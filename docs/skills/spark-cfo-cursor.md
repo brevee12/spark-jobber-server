@@ -45,7 +45,7 @@ Never guess. If not a 100% slam-dunk match, stage it under **Uncategorized / Nee
 
 ## What “needs categorization” means here
 
-QBO’s Banking **For Review** tab is **not** exposed by the API. Outstanding = SimpleFIN downloads in the lookback window **minus** already-posted QBO activity (Purchase / Deposit / Transfer / JournalEntry / BillPayment / Payment, amount + date ±1 day) **minus** email-seen ids (`bookkeeping_mark_seen`).
+QBO’s Banking **For Review** tab is **not** exposed by the API. We approximate it by comparing each account’s **current SimpleFIN feed** to already-posted QBO txs (Purchase / Deposit / Transfer / JournalEntry / BillPayment / Payment, amount + date ±1 day). Matched ≈ already handled; **unmatched** = needs categorize (plus email-seen dedupe via `bookkeeping_mark_seen`). Report each account as `need · matched · feed`.
 
 ## Run protocol (Tue 11:59 PM / Fri 3:30 PM America/Chicago)
 

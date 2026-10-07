@@ -100,10 +100,14 @@ export function toUnixStart(startDate) {
   return Math.floor(d.getTime() / 1000);
 }
 
-/** YYYY-MM-DD — SimpleFIN often returns no txs without an explicit start-date. */
-export function defaultBankStartDate(daysBack = 14) {
+/**
+ * YYYY-MM-DD — SimpleFIN often returns no txs without an explicit start-date.
+ * Default 45 days so stalled accounts (e.g. checking with no new posts for 2+ weeks)
+ * still appear in the current bank-feed comparison window.
+ */
+export function defaultBankStartDate(daysBack = 45) {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - Math.max(1, Number(daysBack) || 14));
+  d.setUTCDate(d.getUTCDate() - Math.max(1, Number(daysBack) || 45));
   return d.toISOString().slice(0, 10);
 }
 
@@ -230,7 +234,7 @@ export async function fetchSimpleFinTransactions({
   includeProcessed = false,
 } = {}) {
   // Without start-date, SimpleFIN commonly returns an empty pending window.
-  const effectiveStart = startDate || defaultBankStartDate(14);
+  const effectiveStart = startDate || defaultBankStartDate(45);
   const data = await fetchAccountsRaw({ startDate: effectiveStart, accountId });
   const processed = loadProcessed();
   const rows = [];

@@ -54,5 +54,6 @@ assert(filtered.summary.alreadyInQbo === 3, `matched 3 got ${filtered.summary.al
 assert(filtered.summary.outstanding === 1, '1 outstanding');
 assert(filtered.transactions[0].id === 'TRN-4', 'unknown remains');
 assert(filtered.matched.find((t) => t.id === 'TRN-2')?.qboMatch?.dateOffset === -1, '±1 day match');
+assert(filtered.summary.byAccount, 'byAccount stats');
 
 console.log('qboPostedMatch.test.js: all assertions passed');

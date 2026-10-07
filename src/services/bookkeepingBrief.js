@@ -188,12 +188,18 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
         `(${qboMatch.alreadyInQbo} already booked in QBO).`
     );
   }
+  const byAccount = qboMatch?.byAccount || {};
   if (!items.length) {
     textParts.push('  No new bank transactions to stage.');
   } else {
     for (const group of groups) {
+      const stats = byAccount[group.accountName];
+      const headerStats = stats
+        ? `${stats.need} need · ${stats.matched} matched in QBO · ${stats.feed} in feed`
+        : `${group.items.length} need`;
       textParts.push('');
-      textParts.push(`### ${group.accountName} (${group.items.length})`);
+      textParts.push(`### ${group.accountName}`);
+      textParts.push(`  (${headerStats})`);
       for (const item of group.items) {
         textParts.push(...formatItemText(item));
       }
@@ -241,8 +247,12 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   } else {
     const sections = groups
       .map((group) => {
+        const stats = byAccount[group.accountName];
+        const headerStats = stats
+          ? `${stats.need} need · ${stats.matched} matched in QBO · ${stats.feed} in feed`
+          : `${group.items.length} need`;
         const lis = group.items.map(formatItemHtml).join('');
-        return `<h3 style="font-size:1rem;margin:1.25rem 0 .4rem">${esc(group.accountName)} <span style="color:#666;font-weight:normal">(${group.items.length})</span></h3><ol>${lis}</ol>`;
+        return `<h3 style="font-size:1rem;margin:1.25rem 0 .25rem">${esc(group.accountName)}</h3><p style="margin:0 0 .4rem;color:#666;font-size:.9rem">${esc(headerStats)}</p><ol>${lis}</ol>`;
       })
       .join('');
     itemsHtml = `${sections}${
