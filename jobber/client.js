@@ -398,6 +398,11 @@ function normalizeQuoteLineItems(lineItems = []) {
         name: item.name || item.description || 'Line item',
         quantity: item.quantity != null ? Number(item.quantity) : 1,
         unitPrice: Number(item.unitPrice ?? item.price ?? 0),
+        // Required non-null on QuoteCreateLineItemAttributes
+        saveToProductsAndServices:
+          typeof item.saveToProductsAndServices === 'boolean'
+            ? item.saveToProductsAndServices
+            : false,
       };
       if (item.description) row.description = item.description;
       if (typeof item.taxable === 'boolean') row.taxable = item.taxable;
@@ -454,43 +459,46 @@ export async function createQuote({
   let embeddedLines = false;
   const errors = [];
 
-  const attributeVariants = [];
-  if (normalizedLines.length) {
-    attributeVariants.push({
-      label: 'attributes+lines-array',
-      attrs: { ...baseAttributes, lineItems: normalizedLines },
-    });
-    attributeVariants.push({
-      label: 'attributes+lines-wrapped',
-      attrs: { ...baseAttributes, lineItems: { lineItems: normalizedLines } },
-    });
-  }
-  attributeVariants.push({ label: 'attributes-bare', attrs: { ...baseAttributes } });
+  // Jobber requires attributes.lineItems to be a non-null array of
+  // QuoteCreateLineItemAttributes (with saveToProductsAndServices set).
+  const linesForCreate =
+    normalizedLines.length > 0
+      ? normalizedLines
+      : [
+          {
+            name: title || 'Quote line',
+            quantity: 1,
+            unitPrice: 0,
+            saveToProductsAndServices: false,
+          },
+        ];
 
-  // Also try input: arg form used by some schema versions
-  for (const variant of attributeVariants) {
-    if (quote) break;
+  try {
+    quote = await attemptCreate({
+      ...baseAttributes,
+      lineItems: linesForCreate,
+    });
+    embeddedLines = true;
+  } catch (err) {
+    errors.push(`attributes+lines: ${err.message}`);
+    // Last resort: create with a stub line, then replace via quoteCreateLineItems
     try {
-      quote = await attemptCreate(variant.attrs, { useInputArg: false });
-      embeddedLines = Boolean(variant.attrs.lineItems);
-    } catch (err) {
-      errors.push(`${variant.label}: ${err.message}`);
+      quote = await attemptCreate({
+        ...baseAttributes,
+        lineItems: [
+          {
+            name: title || 'Quote line',
+            quantity: 1,
+            unitPrice: 0,
+            saveToProductsAndServices: false,
+          },
+        ],
+      });
+      embeddedLines = false;
+    } catch (err2) {
+      errors.push(`attributes+stub: ${err2.message}`);
+      throw new Error(`quoteCreate failed: ${errors.join(' | ')}`);
     }
-  }
-  if (!quote) {
-    for (const variant of attributeVariants) {
-      if (quote) break;
-      try {
-        quote = await attemptCreate(variant.attrs, { useInputArg: true });
-        embeddedLines = Boolean(variant.attrs.lineItems);
-      } catch (err) {
-        errors.push(`input:${variant.label}: ${err.message}`);
-      }
-    }
-  }
-
-  if (!quote) {
-    throw new Error(`quoteCreate failed: ${errors.join(' | ')}`);
   }
 
   let createdLineItems = [];
