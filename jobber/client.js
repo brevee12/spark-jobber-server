@@ -1219,15 +1219,51 @@ export async function editQuote({
   }
 
   let createdLineItems = [];
-  if (Array.isArray(lineItems) && (replaceLineItems || lineItems.length)) {
-    if (replaceLineItems) {
-      const existing = await getQuote(quoteId);
-      const ids = (existing.lineItems || []).map((li) => li.id).filter(Boolean);
-      if (ids.length) {
-        try {
-          const del = await jobberGraphql(DELETE_QUOTE_LINE_ITEMS, {
+  if (Array.isArray(lineItems) && lineItems.length) {
+    const existing = await getQuote(quoteId);
+    const oldIds = (existing.lineItems || []).map((li) => li.id).filter(Boolean);
+    const normalized = normalizeQuoteLineItems(lineItems);
+
+    // Add new lines FIRST — Jobber rejects quotes with zero line items, so we
+    // must not delete-all before create when replaceLineItems is set.
+    const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
+      quoteId: String(quoteId),
+      lineItems: normalized,
+    });
+    const lineResult = lineData?.quoteCreateLineItems;
+    if (lineResult?.userErrors?.length) {
+      throw new Error(
+        `Quote updated (${quoteId}) but line items failed: ` +
+          lineResult.userErrors.map((e) => e.message).join('; ')
+      );
+    }
+    createdLineItems = lineResult?.quote?.lineItems?.nodes || normalized;
+
+    if (replaceLineItems && oldIds.length) {
+      try {
+        const del = await jobberGraphql(DELETE_QUOTE_LINE_ITEMS, {
+          quoteId: String(quoteId),
+          lineItemIds: oldIds,
+        });
+        const delResult = del?.quoteDeleteLineItems;
+        if (delResult?.userErrors?.length) {
+          throw new Error(
+            delResult.userErrors.map((e) => e.message).join('; ')
+          );
+        }
+      } catch (err) {
+        if (/lineItemIds|Unknown argument/i.test(err.message || '')) {
+          const ALT_DELETE = `
+            mutation DeleteQuoteLineItemsAlt($quoteId: EncodedId!, $lineItems: QuoteDeleteLineItemsAttributes!) {
+              quoteDeleteLineItems(quoteId: $quoteId, lineItems: $lineItems) {
+                quote { id }
+                userErrors { message path }
+              }
+            }
+          `;
+          const del = await jobberGraphql(ALT_DELETE, {
             quoteId: String(quoteId),
-            lineItemIds: ids,
+            lineItems: { lineItemIds: oldIds },
           });
           const delResult = del?.quoteDeleteLineItems;
           if (delResult?.userErrors?.length) {
@@ -1235,48 +1271,13 @@ export async function editQuote({
               delResult.userErrors.map((e) => e.message).join('; ')
             );
           }
-        } catch (err) {
-          // Alternate arg shape used on some API versions
-          if (/lineItemIds|Unknown argument/i.test(err.message || '')) {
-            const ALT_DELETE = `
-              mutation DeleteQuoteLineItemsAlt($quoteId: EncodedId!, $lineItems: QuoteDeleteLineItemsAttributes!) {
-                quoteDeleteLineItems(quoteId: $quoteId, lineItems: $lineItems) {
-                  userErrors { message path }
-                }
-              }
-            `;
-            const del = await jobberGraphql(ALT_DELETE, {
-              quoteId: String(quoteId),
-              lineItems: { lineItemIds: ids },
-            });
-            const delResult = del?.quoteDeleteLineItems;
-            if (delResult?.userErrors?.length) {
-              throw new Error(
-                delResult.userErrors.map((e) => e.message).join('; ')
-              );
-            }
-          } else {
-            throw err;
-          }
+        } else {
+          throw err;
         }
       }
-    }
-
-    if (lineItems.length) {
-      const normalized = normalizeQuoteLineItems(lineItems);
-
-      const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
-        quoteId: String(quoteId),
-        lineItems: normalized,
-      });
-      const lineResult = lineData?.quoteCreateLineItems;
-      if (lineResult?.userErrors?.length) {
-        throw new Error(
-          `Quote updated (${quoteId}) but line items failed: ` +
-            lineResult.userErrors.map((e) => e.message).join('; ')
-        );
-      }
-      createdLineItems = lineResult?.quote?.lineItems?.nodes || normalized;
+      // Refresh after delete so returned lines are only the new set
+      const refreshed = await getQuote(quoteId);
+      createdLineItems = refreshed.lineItems || createdLineItems;
     }
   }
 
