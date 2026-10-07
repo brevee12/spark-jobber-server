@@ -177,13 +177,11 @@ function persistProcessedLocal(set) {
     ids,
     updatedAt: new Date().toISOString(),
   });
-  // Keep process.env in sync for this instance (no Render PUT unless durable).
-  process.env[PROCESSED_ENV_KEY] = JSON.stringify(ids);
   return ids;
 }
 
 /**
- * Mark bank txs as already staged/approved so morning briefs skip them (local + env mirror).
+ * Mark bank txs as already staged/approved so morning briefs skip them (local file).
  * @returns {number} total processed id count
  */
 export function markTransactionsProcessed(transactionIds = []) {
@@ -196,17 +194,19 @@ export function markTransactionsProcessed(transactionIds = []) {
 
 /**
  * Same as markTransactionsProcessed, then persist SIMPLEFIN_PROCESSED_IDS on Render
- * so deploys do not re-stage the same lines (triggers env sync only when changed).
+ * so deploys do not re-stage the same lines (env sync only when the id set changes).
  */
 export async function markTransactionsProcessedDurable(transactionIds = []) {
-  const before = loadProcessed().size;
+  const beforeIds = new Set(listProcessedTransactionIds());
+  const beforeEnv = process.env[PROCESSED_ENV_KEY] || '';
   const count = markTransactionsProcessed(transactionIds);
   const ids = listProcessedTransactionIds();
-  const added = Math.max(0, count - before);
+  const added = ids.filter((id) => !beforeIds.has(id)).length;
+  const next = JSON.stringify(ids);
   const durable =
-    added > 0
+    next !== beforeEnv
       ? await persistEnvVars(
-          { [PROCESSED_ENV_KEY]: JSON.stringify(ids) },
+          { [PROCESSED_ENV_KEY]: next },
           { onlyIfChanged: true }
         )
       : { synced: true, updated: [], skipped: [PROCESSED_ENV_KEY] };
