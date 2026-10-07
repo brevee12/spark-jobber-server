@@ -1,10 +1,10 @@
-# Morning bookkeeping email (Cursor Automation)
+# Biweekly bookkeeping email (Cursor Automation)
 
-Stage-only daily brief for Veenstra Painting. Emails a numbered §1/§2/§3 summary (bootstrap: `brevee12@gmail.com` via Resend test sender); approve by number **in Cursor chat** (not Slack). Nothing posts to QuickBooks until a separate write Allow.
+Stage-only brief for Veenstra Painting per [`../skills/spark-cfo-cursor.md`](../skills/spark-cfo-cursor.md). Emails a numbered §1/§2/§3 summary **grouped by account** (bootstrap: `brevee12@gmail.com` via Resend test sender); approve by number **in Cursor chat** (not Slack). Nothing posts to QuickBooks until a separate write Allow.
 
 ## Schedule
 
-- Suggested: weekdays ~7:00 America/Chicago
+- **Tue 11:59 PM** and **Fri 3:30 PM** America/Chicago (Spark CFO skill cadence)
 - Trigger: Cursor Automation cron → this agent / MCP server
 
 ## Env (Render + automation)
