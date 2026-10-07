@@ -26,6 +26,16 @@ const review = {
         qboWriteTool: 'qbo_create_expense',
       },
       {
+        date: '2026-09-22',
+        accountName: 'EZ BUS 3969 *3969 (3969)',
+        amount: '-3000.00',
+        amountSigned: -3000,
+        description: 'CK # 1491',
+        suggestedCategory: 'Expense / Owner draw (review)',
+        treatment: 'Checking outflow.',
+        doNotPostViaApi: true,
+      },
+      {
         date: '2026-09-23',
         accountName: 'CC-Capital One Spark (7296)',
         amount: '159.10',
@@ -58,23 +68,27 @@ const review = {
 };
 
 const items = listStagingItems(review);
-assert(items.length === 2, 'two staging items');
+assert(items.length === 3, 'three staging items');
 assert(items[0].n === 1, '1-indexed');
+assert(/EZ BUS/i.test(items[0].accountName), 'checking account first');
 
 const brief = formatBookkeepingBrief(review, {
   agentUrl: 'https://cursor.com/agents/example',
 });
 
 assert(/Bookkeeping brief 2026-10-07/.test(brief.subject), 'subject has date');
-assert(brief.itemCount === 2, 'itemCount');
+assert(brief.itemCount === 3, 'itemCount');
+assert(brief.groups?.length === 2, 'two account subsections');
 assert(brief.text.includes('§1 Cash snapshot'), '§1');
-assert(brief.text.includes('§2 Bank staging'), '§2');
+assert(brief.text.includes('§2 Bank staging by account'), '§2');
+assert(brief.text.includes('### EZ BUS'), 'checking subsection');
+assert(brief.text.includes('### CC-Capital One Spark'), 'cc subsection');
 assert(brief.text.includes('§3 How to approve'), '§3');
 assert(brief.text.includes('1. '), 'numbered 1');
-assert(brief.text.includes('2. '), 'numbered 2');
 assert(brief.text.includes('CASEYS #3566'), 'payee in text');
 assert(brief.text.includes('https://cursor.com/agents/example'), 'agent url');
 assert(brief.html.includes('<ol>'), 'html list');
+assert(brief.html.includes('<h3'), 'html account headers');
 assert(brief.html.includes('approve'), 'html approve hint');
 assert(brief.html.includes('Open Cursor agent'), 'html agent link');
 

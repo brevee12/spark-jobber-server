@@ -1,6 +1,6 @@
 /**
  * Dense numbered bookkeeping brief (HTML + plain text) for email.
- * §1 cash · §2 numbered bank staging (approve-by-number) · §3 notes + Cursor link.
+ * §1 cash · §2 bank staging by account (approve-by-number) · §3 notes + Cursor link.
  */
 
 function money(n) {
@@ -28,19 +28,31 @@ function fmtDate(d) {
 function shortTreatment(tx) {
   const t = String(tx.treatment || '').trim();
   if (!t) return '';
-  // Keep email dense — first clause / ~140 chars.
   const first = t.split(/(?<=\.)\s+/)[0] || t;
   return first.length > 160 ? `${first.slice(0, 157)}…` : first;
 }
 
-function lineLabel(tx) {
+/** Line under an account subsection — account name omitted (it's the header). */
+function lineLabelInAccount(tx) {
   const parts = [
     fmtDate(tx.date),
-    tx.accountName || tx.accountId || 'Account',
     money(tx.amountSigned ?? tx.amount),
     String(tx.description || '').trim() || '(no description)',
   ];
   return parts.join(' · ');
+}
+
+function accountNameOf(tx) {
+  return String(tx.accountName || tx.accountId || 'Unknown account').trim();
+}
+
+/** Stable section order: checking → CC → LOC/loan → other. */
+function accountSortKey(name = '') {
+  const n = String(name).toLowerCase();
+  if (/checking|ez\s*bus|\boperat/.test(n)) return `1:${n}`;
+  if (/spark|capital\s*one|credit\s*card|\bcc\b/.test(n)) return `2:${n}`;
+  if (/loan|loc|n\/p|line of credit|0549/.test(n)) return `3:${n}`;
+  return `4:${n}`;
 }
 
 function agentUrlFromEnv() {
@@ -53,20 +65,43 @@ function agentUrlFromEnv() {
 
 /**
  * Build approve-list items from a bookkeeping_review result.
- * @param {object} review
- * @returns {Array<{n:number, tx:object, label:string, category:string|null, treatment:string, doNotPostViaApi:boolean}>}
+ * Sorted by account subsection, then date desc; numbers are global 1..n.
  */
 export function listStagingItems(review = {}) {
-  const txs = review?.bankFeed?.transactions || [];
+  const txs = [...(review?.bankFeed?.transactions || [])];
+  txs.sort((a, b) => {
+    const ak = accountSortKey(accountNameOf(a));
+    const bk = accountSortKey(accountNameOf(b));
+    if (ak !== bk) return ak < bk ? -1 : 1;
+    return (b.posted || 0) - (a.posted || 0) || String(b.date).localeCompare(String(a.date));
+  });
+
   return txs.map((tx, i) => ({
     n: i + 1,
     tx,
-    label: lineLabel(tx),
+    accountName: accountNameOf(tx),
+    label: lineLabelInAccount(tx),
     category: tx.suggestedCategory || null,
     treatment: shortTreatment(tx),
     doNotPostViaApi: Boolean(tx.doNotPostViaApi),
     qboWriteTool: tx.qboWriteTool || null,
   }));
+}
+
+/** Group numbered items into account subsections (order preserved). */
+export function groupItemsByAccount(items = []) {
+  const groups = [];
+  const index = new Map();
+  for (const item of items) {
+    const name = item.accountName || 'Unknown account';
+    if (!index.has(name)) {
+      const g = { accountName: name, items: [] };
+      index.set(name, g);
+      groups.push(g);
+    }
+    index.get(name).items.push(item);
+  }
+  return groups;
 }
 
 function formatCashLines(cash) {
@@ -84,10 +119,34 @@ function formatCashLines(cash) {
   return lines;
 }
 
+function formatItemText(item) {
+  const flags = [];
+  if (item.doNotPostViaApi) flags.push('feed-only');
+  if (item.qboWriteTool) flags.push(item.qboWriteTool);
+  const lines = [`${item.n}. ${item.label}`];
+  if (item.category) lines.push(`   Category: ${item.category}`);
+  if (item.treatment) lines.push(`   ${item.treatment}`);
+  if (flags.length) lines.push(`   [${flags.join(' · ')}]`);
+  return lines;
+}
+
+function formatItemHtml(item) {
+  const meta = [];
+  if (item.category) meta.push(`<strong>${esc(item.category)}</strong>`);
+  if (item.doNotPostViaApi) meta.push('feed-only');
+  if (item.qboWriteTool) meta.push(esc(item.qboWriteTool));
+  return `<li value="${item.n}"><code>${esc(item.label)}</code>${
+    meta.length ? `<br/><span style="color:#444">${meta.join(' · ')}</span>` : ''
+  }${
+    item.treatment
+      ? `<br/><span style="color:#555">${esc(item.treatment)}</span>`
+      : ''
+  }</li>`;
+}
+
 /**
  * @param {object} review — output of runBookkeepingReview
  * @param {{ agentUrl?: string, maxItems?: number }} [opts]
- * @returns {{ subject: string, text: string, html: string, itemCount: number, items: object[] }}
  */
 export function formatBookkeepingBrief(review = {}, opts = {}) {
   const agentUrl = opts.agentUrl ?? agentUrlFromEnv();
@@ -95,6 +154,7 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   const allItems = listStagingItems(review);
   const items = allItems.slice(0, maxItems);
   const truncated = allItems.length - items.length;
+  const groups = groupItemsByAccount(items);
   const generatedAt = review.generatedAt || new Date().toISOString();
   const day = generatedAt.slice(0, 10);
   const cashLines = formatCashLines(review.qbo?.cashBalances);
@@ -104,9 +164,8 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   const subject =
     items.length === 0
       ? `Bookkeeping brief ${day} — no new bank lines`
-      : `Bookkeeping brief ${day} — ${items.length} staged line${items.length === 1 ? '' : 's'}`;
+      : `Bookkeeping brief ${day} — ${items.length} staged line${items.length === 1 ? '' : 's'} (${groups.length} account${groups.length === 1 ? '' : 's'})`;
 
-  // --- plain text ---
   const textParts = [];
   textParts.push(`Veenstra Painting — bookkeeping brief`);
   textParts.push(`Generated: ${generatedAt}`);
@@ -121,7 +180,7 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
     textParts.push(`  Sherwin bills (open sample): ${sherwinCount}`);
   }
   textParts.push('');
-  textParts.push('§2 Bank staging — reply in Cursor with approve N / skip N');
+  textParts.push('§2 Bank staging by account — reply in Cursor with approve N / skip N');
   const qboMatch = review?.bankFeed?.qboMatch;
   if (qboMatch && qboMatch.simplefinTotal != null) {
     textParts.push(
@@ -132,16 +191,15 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   if (!items.length) {
     textParts.push('  No new bank transactions to stage.');
   } else {
-    for (const item of items) {
-      const flags = [];
-      if (item.doNotPostViaApi) flags.push('feed-only');
-      if (item.qboWriteTool) flags.push(item.qboWriteTool);
-      textParts.push(`${item.n}. ${item.label}`);
-      if (item.category) textParts.push(`   Category: ${item.category}`);
-      if (item.treatment) textParts.push(`   ${item.treatment}`);
-      if (flags.length) textParts.push(`   [${flags.join(' · ')}]`);
+    for (const group of groups) {
+      textParts.push('');
+      textParts.push(`### ${group.accountName} (${group.items.length})`);
+      for (const item of group.items) {
+        textParts.push(...formatItemText(item));
+      }
     }
     if (truncated > 0) {
+      textParts.push('');
       textParts.push(`  … +${truncated} more not shown (raise maxItems)`);
     }
   }
@@ -151,7 +209,7 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
     '  Open the Cursor agent link and reply with numbers, e.g. "approve 1,3" or "skip 2".'
   );
   textParts.push(
-    '  Stage-only: nothing is posted to QuickBooks until you approve writes in chat.'
+    '  Numbers are global across accounts. Stage-only: nothing posts to QuickBooks until you approve writes in chat.'
   );
   if (agentUrl) {
     textParts.push(`  Cursor: ${agentUrl}`);
@@ -173,7 +231,6 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
 
   const text = textParts.join('\n');
 
-  // --- HTML ---
   const cashHtml = cashLines.length
     ? `<ul>${cashLines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`
     : '<p><em>(cash balances unavailable)</em></p>';
@@ -182,27 +239,21 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   if (!items.length) {
     itemsHtml = '<p>No new bank transactions to stage.</p>';
   } else {
-    const lis = items
-      .map((item) => {
-        const meta = [];
-        if (item.category) meta.push(`<strong>${esc(item.category)}</strong>`);
-        if (item.doNotPostViaApi) meta.push('feed-only');
-        if (item.qboWriteTool) meta.push(esc(item.qboWriteTool));
-        return `<li value="${item.n}"><code>${esc(item.label)}</code>${
-          meta.length ? `<br/><span style="color:#444">${meta.join(' · ')}</span>` : ''
-        }${
-          item.treatment
-            ? `<br/><span style="color:#555">${esc(item.treatment)}</span>`
-            : ''
-        }</li>`;
+    const sections = groups
+      .map((group) => {
+        const lis = group.items.map(formatItemHtml).join('');
+        return `<h3 style="font-size:1rem;margin:1.25rem 0 .4rem">${esc(group.accountName)} <span style="color:#666;font-weight:normal">(${group.items.length})</span></h3><ol>${lis}</ol>`;
       })
       .join('');
-    itemsHtml = `<ol>${lis}</ol>${
-      truncated > 0
-        ? `<p><em>… +${truncated} more not shown</em></p>`
-        : ''
+    itemsHtml = `${sections}${
+      truncated > 0 ? `<p><em>… +${truncated} more not shown</em></p>` : ''
     }`;
   }
+
+  const filterHtml =
+    qboMatch && qboMatch.simplefinTotal != null
+      ? `<p style="color:#444">Filter: ${qboMatch.outstanding} outstanding of ${qboMatch.simplefinTotal} SimpleFIN rows (${qboMatch.alreadyInQbo} already booked in QBO).</p>`
+      : '';
 
   const agentHtml = agentUrl
     ? `<p><a href="${esc(agentUrl)}">Open Cursor agent to approve by number</a></p>`
@@ -215,14 +266,15 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
     : '';
 
   const html = `<!DOCTYPE html>
-<html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111;max-width:40rem">
+<html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111;max-width:42rem">
 <h1 style="font-size:1.25rem;margin:0 0 .5rem">Veenstra Painting — bookkeeping brief</h1>
 <p style="margin:0 0 1rem;color:#555">Generated ${esc(generatedAt)}</p>
 <h2 style="font-size:1.05rem">§1 Cash snapshot</h2>
 ${cashHtml}
 ${sherwinCount != null ? `<p>Sherwin bills (open sample): ${sherwinCount}</p>` : ''}
-<h2 style="font-size:1.05rem">§2 Bank staging</h2>
-<p style="color:#444">Reply in Cursor with <code>approve N</code> / <code>skip N</code> (comma-separated).</p>
+<h2 style="font-size:1.05rem">§2 Bank staging by account</h2>
+<p style="color:#444">Reply in Cursor with <code>approve N</code> / <code>skip N</code> (numbers are global across accounts).</p>
+${filterHtml}
 ${itemsHtml}
 <h2 style="font-size:1.05rem">§3 How to approve</h2>
 <p>Stage-only run — nothing posts to QuickBooks until you approve writes in chat.</p>
@@ -241,6 +293,7 @@ ${warnHtml}
     html,
     itemCount: allItems.length,
     items,
+    groups,
     agentUrl: agentUrl || null,
     generatedAt,
   };

@@ -26,6 +26,12 @@ const CATEGORY_RULES = [
     note: 'Jobber SaaS subscription',
   },
   {
+    // Payroll / tax drafts before generic Intuit SaaS.
+    test: /intuit.*\b(payroll|tax)\b|\bpayroll\b.*intuit|\bia\s*dept\s*of\s*rev|\bia\s*rev\s*pay/i,
+    category: 'Payroll / Tax',
+    note: 'Payroll or tax draft — usually already in QBO via payroll; confirm before posting',
+  },
+  {
     test: /quickbooks|intuit/i,
     category: 'Software / Subscriptions',
     note: 'QuickBooks / Intuit subscription',
