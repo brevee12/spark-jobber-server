@@ -2,6 +2,10 @@
  * Transactional email via Resend HTTP API.
  * Requires RESEND_API_KEY.
  * Optional: BOOKKEEPING_NOTIFY_EMAIL, RESEND_FROM / BOOKKEEPING_EMAIL_FROM.
+ *
+ * Bootstrap (no custom domain): send from onboarding@resend.dev to the Resend
+ * account inbox (brevee12@gmail.com). Later, verify a domain and point
+ * BOOKKEEPING_NOTIFY_EMAIL / RESEND_FROM at @veenstrapainting.com.
  */
 
 export function emailConfigured() {
@@ -11,7 +15,7 @@ export function emailConfigured() {
 export function defaultNotifyEmail() {
   return (
     process.env.BOOKKEEPING_NOTIFY_EMAIL?.trim() ||
-    'brennan@veenstrapainting.com'
+    'brevee12@gmail.com'
   );
 }
 
@@ -19,7 +23,7 @@ export function defaultFromAddress() {
   return (
     process.env.RESEND_FROM?.trim() ||
     process.env.BOOKKEEPING_EMAIL_FROM?.trim() ||
-    'Veenstra Bookkeeping <onboarding@resend.com>'
+    'Veenstra Bookkeeping <onboarding@resend.dev>'
   );
 }
 

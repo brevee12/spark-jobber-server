@@ -1,6 +1,6 @@
 # Morning bookkeeping email (Cursor Automation)
 
-Stage-only daily brief for Veenstra Painting. Emails Brennan a numbered §1/§2/§3 summary; he approves by number **in Cursor chat** (not Slack). Nothing posts to QuickBooks until a separate write Allow.
+Stage-only daily brief for Veenstra Painting. Emails a numbered §1/§2/§3 summary (bootstrap: `brevee12@gmail.com` via Resend test sender); approve by number **in Cursor chat** (not Slack). Nothing posts to QuickBooks until a separate write Allow.
 
 ## Schedule
 
@@ -12,8 +12,8 @@ Stage-only daily brief for Veenstra Painting. Emails Brennan a numbered §1/§2/
 | Variable | Purpose |
 | --- | --- |
 | `RESEND_API_KEY` | Resend API key (required to send) |
-| `RESEND_FROM` | Verified from-address |
-| `BOOKKEEPING_NOTIFY_EMAIL` | Default `brennan@veenstrapainting.com` |
+| `RESEND_FROM` | Bootstrap: `Veenstra Bookkeeping <onboarding@resend.dev>` (later: verified domain) |
+| `BOOKKEEPING_NOTIFY_EMAIL` | Bootstrap default `brevee12@gmail.com` (later: `brennan@veenstrapainting.com`) |
 | `CURSOR_AGENT_URL` | Link to this Cursor agent/chat for approve-by-number |
 | `BOOKKEEPING_NOTIFY_SECRET` | Optional auth for HTTP notify |
 

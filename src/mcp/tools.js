@@ -608,14 +608,14 @@ export const toolDefinitions = [
   {
     name: 'email_bookkeeping_brief',
     description:
-      'STAGE-ONLY: run bookkeeping_review (bank staging + cash, no QBO writes), email a numbered §1/§2/§3 brief to Brennan (BOOKKEEPING_NOTIFY_EMAIL). Includes CURSOR_AGENT_URL for approve-by-number in Cursor chat — not Slack. Health-gated when SimpleFIN/QBO/Resend missing. Use dryRun to preview without sending.',
+      'STAGE-ONLY: run bookkeeping_review (bank staging + cash, no QBO writes), email a numbered §1/§2/§3 brief to BOOKKEEPING_NOTIFY_EMAIL (bootstrap: brevee12@gmail.com via Resend onboarding@resend.dev). Includes CURSOR_AGENT_URL for approve-by-number in Cursor chat — not Slack. Health-gated when SimpleFIN/QBO/Resend missing. Use dryRun to preview without sending.',
     inputSchema: {
       type: 'object',
       properties: {
         to: {
           type: 'string',
           description:
-            'Override recipient (default BOOKKEEPING_NOTIFY_EMAIL / brennan@veenstrapainting.com)',
+            'Override recipient (default BOOKKEEPING_NOTIFY_EMAIL / brevee12@gmail.com)',
         },
         startDate: {
           type: 'string',
