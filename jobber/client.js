@@ -1283,8 +1283,8 @@ export async function editQuote({
 
   const fresh = await getQuote(quoteId);
   return {
-    ...fresh,
     ...(quote || {}),
+    ...fresh,
     lineItems: createdLineItems.length ? createdLineItems : fresh.lineItems,
   };
 }
