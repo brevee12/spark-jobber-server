@@ -43,7 +43,7 @@ function shiftDate(iso, days) {
   return d.toISOString().slice(0, 10);
 }
 
-async function queryAll(entity, startDate, endDate, { slimSql } = {}) {
+export async function queryAll(entity, startDate, endDate, { slimSql } = {}) {
   const start = String(startDate).slice(0, 10);
   const end = endDate ? String(endDate).slice(0, 10) : null;
   const rows = [];
@@ -95,7 +95,21 @@ async function queryAll(entity, startDate, endDate, { slimSql } = {}) {
   return rows;
 }
 
-function pushCandidate(bag, { date, amount, description, id, type }) {
+// One QBO record between two fed accounts (checking ↔ CC / loan) clears a
+// feed line on each side, so it may satisfy two SimpleFIN rows.
+const BALANCE_SHEET_ACCOUNT_RE = /^(N\/P|CC-|Checking|Loan|LOC)\b/i;
+
+function linesTouchBalanceSheet(lines = []) {
+  return lines.some((l) => {
+    const ref =
+      l.AccountBasedExpenseLineDetail?.AccountRef ||
+      l.DepositLineDetail?.AccountRef ||
+      l.JournalEntryLineDetail?.AccountRef;
+    return BALANCE_SHEET_ACCOUNT_RE.test(String(ref?.name || ''));
+  });
+}
+
+function pushCandidate(bag, { date, amount, description, id, type, uses = 1 }) {
   const mk = moneyKey(amount);
   if (!date || !mk) return;
   const key = `${date}|${mk}`;
@@ -106,7 +120,14 @@ function pushCandidate(bag, { date, amount, description, id, type }) {
     description: normalizeDesc(description),
     date,
     amount: mk,
+    uses,
   });
+}
+
+const CHECK_NO_RE = /\b(?:CK|CHECK|CHK)\s*#?\s*(\d{3,6})\b/i;
+
+export function checkNumberOf(description = '') {
+  return String(description).match(CHECK_NO_RE)?.[1] || null;
 }
 
 function pushEntitySafe(stats, key, count) {
@@ -153,6 +174,7 @@ export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
       description: `${entity} ${lineDesc} ${p.PrivateNote || ''}`,
       id: p.Id,
       type: 'Purchase',
+      uses: linesTouchBalanceSheet(p.Line) ? 2 : 1,
     });
   });
 
@@ -167,6 +189,7 @@ export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
       description: `${lineDesc} ${d.PrivateNote || ''}`,
       id: d.Id,
       type: 'Deposit',
+      uses: linesTouchBalanceSheet(d.Line) ? 2 : 1,
     });
   });
 
@@ -177,6 +200,7 @@ export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
       description: t.PrivateNote || 'Transfer',
       id: t.Id,
       type: 'Transfer',
+      uses: 2,
     });
   });
 
@@ -226,6 +250,7 @@ export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
         description: `${note} ${line.Description || ''} JournalEntry`,
         id: `${je.Id}:${mk}`,
         type: 'JournalEntry',
+        uses: 2,
       });
     }
   });
@@ -269,7 +294,9 @@ function findBestHit(local, date, mk, desc) {
 
   if (!best) return null;
   const list = local.get(best.key);
-  const [hit] = list.splice(best.bestIdx, 1);
+  const hit = list[best.bestIdx];
+  hit.uses = (hit.uses ?? 1) - 1;
+  if (hit.uses <= 0) list.splice(best.bestIdx, 1);
   return { ...hit, dateOffset: best.dateOffset, score: best.score };
 }
 
@@ -279,20 +306,28 @@ function findBestHit(local, date, mk, desc) {
 export function matchSimpleFinToQbo(
   transactions = [],
   bag,
-  { onlyOutstanding = true } = {}
+  { onlyOutstanding = true, checkIndex = null } = {}
 ) {
   const matched = [];
   const outstanding = [];
 
   const local = new Map();
   for (const [k, arr] of bag.entries()) {
-    local.set(k, [...arr]);
+    local.set(k, arr.map((c) => ({ ...c })));
   }
+
+  const checks = new Map(checkIndex || []);
 
   for (const tx of transactions) {
     const mk = moneyKey(tx.amount);
     const desc = normalizeDesc(tx.description);
-    const hit = findBestHit(local, tx.date, mk, desc);
+    const checkNo = checkNumberOf(tx.description);
+    let hit = null;
+    if (checkNo && checks.has(`${checkNo}|${mk}`)) {
+      hit = { ...checks.get(`${checkNo}|${mk}`), dateOffset: null, score: 'checkNumber' };
+      checks.delete(`${checkNo}|${mk}`);
+    }
+    if (!hit) hit = findBestHit(local, tx.date, mk, desc);
 
     if (hit) {
       matched.push({
@@ -351,6 +386,29 @@ export function matchSimpleFinToQbo(
   };
 }
 
+// Checks are often written in QBO well before they clear the bank.
+const CHECK_LOOKBACK_DAYS = 120;
+
+/** DocNumber|amount → posted check (Purchase or BillPayment), any date in window. */
+export async function loadQboCheckIndex({ startDate, endDate } = {}) {
+  const index = new Map();
+  for (const entity of ['Purchase', 'BillPayment']) {
+    const rows = await queryAll(entity, startDate, endDate);
+    for (const row of rows) {
+      const doc = String(row.DocNumber || '').trim();
+      const mk = moneyKey(row.TotalAmt);
+      if (!/^\d{3,6}$/.test(doc) || !mk) continue;
+      index.set(`${doc}|${mk}`, {
+        id: String(row.Id),
+        type: `${entity} (check #${doc}, ${row.TxnDate})`,
+        date: row.TxnDate,
+        amount: mk,
+      });
+    }
+  }
+  return index;
+}
+
 /**
  * Fetch QBO posted activity and filter SimpleFIN to outstanding rows.
  */
@@ -380,7 +438,18 @@ export async function filterOutstandingAgainstQbo(
     startDate: effectiveStart,
     endDate: effectiveEnd,
   });
-  const matched = matchSimpleFinToQbo(transactions, bag, { onlyOutstanding });
+  let checkIndex = null;
+  if (transactions.some((t) => checkNumberOf(t.description))) {
+    try {
+      checkIndex = await loadQboCheckIndex({
+        startDate: shiftDate(String(effectiveStart).slice(0, 10), -CHECK_LOOKBACK_DAYS),
+        endDate: qboEnd,
+      });
+    } catch (err) {
+      errors.push({ entity: 'checkNumbers', error: err.message });
+    }
+  }
+  const matched = matchSimpleFinToQbo(transactions, bag, { onlyOutstanding, checkIndex });
   return {
     ...matched,
     summary: {

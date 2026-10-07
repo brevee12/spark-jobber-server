@@ -76,17 +76,27 @@ export function listStagingItems(review = {}) {
     return (b.posted || 0) - (a.posted || 0) || String(b.date).localeCompare(String(a.date));
   });
 
-  return txs.map((tx, i) => ({
-    n: i + 1,
-    tx,
-    accountName: accountNameOf(tx),
-    label: lineLabelInAccount(tx),
-    category: tx.suggestedCategory || null,
-    treatment: shortTreatment(tx),
-    doNotPostViaApi: Boolean(tx.doNotPostViaApi),
-    qboWriteTool: tx.qboWriteTool || null,
-  }));
+  const numberById = new Map(txs.map((tx, i) => [tx.id, i + 1]));
+  return txs.map((tx, i) => {
+    const pairN = tx.pairedTxId ? numberById.get(tx.pairedTxId) : null;
+    const base = tx.suggestedCategory || null;
+    return {
+      n: i + 1,
+      tx,
+      accountName: accountNameOf(tx),
+      label: lineLabelInAccount(tx),
+      category: base && pairN ? `${base} (same transfer as #${pairN})` : base,
+      qboAccount: tx.suggestedQboAccount || null,
+      suggestionSource: tx.suggestionSource || null,
+      treatment: shortTreatment(tx),
+      doNotPostViaApi: Boolean(tx.doNotPostViaApi),
+      qboWriteTool: tx.qboWriteTool || null,
+    };
+  });
 }
+
+const CATEGORY_LEGEND =
+  'Suggested category = an existing QBO account (from your COA / past payee history). "Match:" = match to an existing QBO record in Banking, don\'t categorize. "Needs your pick" = no confident QBO account; tell me which one.';
 
 /** Group numbered items into account subsections (order preserved). */
 export function groupItemsByAccount(items = []) {
@@ -149,7 +159,7 @@ function formatAccountTableText(items) {
     { key: 'date', title: 'Date', w: 10 },
     { key: 'desc', title: 'Description', w: 36 },
     { key: 'amt', title: 'Amount', w: 12 },
-    { key: 'cat', title: 'Suggested category', w: 28 },
+    { key: 'cat', title: 'Suggested category', w: 48 },
   ];
   const pad = (s, w) => {
     const str = String(s);
@@ -253,6 +263,8 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
     }
   }
   textParts.push('');
+  textParts.push(`  ${CATEGORY_LEGEND}`);
+  textParts.push('');
   textParts.push('§3 How to approve');
   textParts.push(
     '  Open the Cursor agent link and reply with numbers, e.g. "approve 1,3" or "skip 2".'
@@ -329,6 +341,7 @@ ${sherwinCount != null ? `<p>Sherwin bills (open sample): ${sherwinCount}</p>` :
 <p style="color:#444">Reply in Cursor with <code>approve N</code> / <code>skip N</code> using the <strong>#</strong> column (global across accounts).</p>
 ${filterHtml}
 ${itemsHtml}
+<p style="font-size:.9rem;color:#444">${esc(CATEGORY_LEGEND)}</p>
 <h2 style="font-size:1.05rem">§3 How to approve</h2>
 <p>Stage-only run — nothing posts to QuickBooks until you approve writes in chat.</p>
 ${agentHtml}
