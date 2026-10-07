@@ -148,12 +148,17 @@ export function buildPayeeHistory(purchases = [], accounts = []) {
   return history;
 }
 
+const FEE_RE = /\b(OVERDRAFT|NSF|FEE|FEES|RETURNED ITEM)\b/i;
+
 function historyPick(tx, history, { strict = false } = {}) {
   const key = vendorKey(tx.description);
   if (!key.length) return null;
+  // Bank fee lines quote the item they hit ("OVERDRAFT FEE … INTUIT PAYROLL").
+  const txIsFee = FEE_RE.test(tx.description || '');
   const attempt = (tokens) => {
     const counts = new Map();
     for (const h of history) {
+      if (!txIsFee && FEE_RE.test(h.text)) continue;
       const ws = h.text.split(' ');
       if (!tokens.every((t) => ws.some((w) => w.startsWith(t) || (w.length >= 4 && t.startsWith(w))))) continue;
       const c = counts.get(h.account.id) || { account: h.account, n: 0, payee: h.payee };

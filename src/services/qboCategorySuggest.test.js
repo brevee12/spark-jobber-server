@@ -42,8 +42,13 @@ const purchases = [
     Line: [{ Amount: 1285, AccountBasedExpenseLineDetail: { AccountRef: { value: '14' } } }],
   },
 ];
+accounts.push({ id: '5', name: 'Bank Charges & Fees', accountType: 'Expense' });
+purchases.push({
+  Id: 'p4', TxnDate: '2026-09-18', TotalAmt: 25,
+  Line: [{ Amount: 25, Description: 'OVERDRAFT FEE PER PAID ITEM INTUIT 05553090 PAYROLL', AccountBasedExpenseLineDetail: { AccountRef: { value: '5' } } }],
+});
 const history = buildPayeeHistory(purchases, accounts);
-assertEq(history.length, 2, 'uncategorized history ignored');
+assertEq(history.length, 3, 'uncategorized history ignored');
 assertEq(vendorKey('PAYPAL *FASTOOL INC FA').join(' '), 'FASTOOL', 'vendor key strips paypal');
 
 assertEq(qboAccountForFeed('Spark Cash Plus (7296)', accounts)?.id, '101', 'spark feed');
