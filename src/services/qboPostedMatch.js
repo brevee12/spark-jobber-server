@@ -319,6 +319,24 @@ export function matchSimpleFinToQbo(
     ? outstanding
     : [...outstanding, ...matched];
 
+  /** Per SimpleFIN account: feed size vs already in QBO vs still need categorize */
+  const byAccount = {};
+  for (const tx of transactions) {
+    const name = tx.accountName || tx.accountId || 'Unknown account';
+    if (!byAccount[name]) {
+      byAccount[name] = { feed: 0, matched: 0, need: 0 };
+    }
+    byAccount[name].feed += 1;
+  }
+  for (const tx of matched) {
+    const name = tx.accountName || tx.accountId || 'Unknown account';
+    byAccount[name].matched += 1;
+  }
+  for (const tx of outstanding) {
+    const name = tx.accountName || tx.accountId || 'Unknown account';
+    byAccount[name].need += 1;
+  }
+
   return {
     transactions: transactionsOut,
     matched,
@@ -328,6 +346,7 @@ export function matchSimpleFinToQbo(
       alreadyInQbo: matched.length,
       outstanding: outstanding.length,
       onlyOutstanding,
+      byAccount,
     },
   };
 }
