@@ -1,0 +1,89 @@
+/**
+ * Run: node src/services/bookkeepingBrief.test.js
+ */
+import { formatBookkeepingBrief, listStagingItems } from './bookkeepingBrief.js';
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg);
+}
+
+const review = {
+  generatedAt: '2026-10-07T12:00:00.000Z',
+  bankFeed: {
+    policy: {
+      creditCardCredits: 'Never post CC refunds via API.',
+    },
+    transactions: [
+      {
+        date: '2026-10-05',
+        accountName: 'CC-Capital One Spark (7296)',
+        amount: '-95.92',
+        amountSigned: -95.92,
+        description: 'CASEYS #3566',
+        suggestedCategory: 'Fuel / Auto',
+        treatment: 'Card charge. Prefer clearing via the QBO Banking feed.',
+        doNotPostViaApi: true,
+        qboWriteTool: 'qbo_create_expense',
+      },
+      {
+        date: '2026-09-23',
+        accountName: 'CC-Capital One Spark (7296)',
+        amount: '159.10',
+        amountSigned: 159.1,
+        description: 'PAYPAL *FASTOOL INC FA',
+        suggestedCategory: '110 – Small Tools & Equipment',
+        treatment:
+          'Card credit/refund. QBO has no reliable MCP credit-card-credit write — clear this in the QBO Banking feed.',
+        doNotPostViaApi: true,
+        qboWriteTool: null,
+      },
+    ],
+  },
+  qbo: {
+    cashBalances: {
+      checking: [
+        {
+          name: 'Checking-Marion County Bank (3696)',
+          balance: 14505.78,
+        },
+      ],
+      lineOfCredit: [],
+      creditCards: [
+        { name: 'CC-Capital One Spark (7296)', balance: -13168.98 },
+      ],
+    },
+    sherwinBills: { count: 2, bills: [] },
+  },
+  errors: [],
+};
+
+const items = listStagingItems(review);
+assert(items.length === 2, 'two staging items');
+assert(items[0].n === 1, '1-indexed');
+
+const brief = formatBookkeepingBrief(review, {
+  agentUrl: 'https://cursor.com/agents/example',
+});
+
+assert(/Bookkeeping brief 2026-10-07/.test(brief.subject), 'subject has date');
+assert(brief.itemCount === 2, 'itemCount');
+assert(brief.text.includes('§1 Cash snapshot'), '§1');
+assert(brief.text.includes('§2 Bank staging'), '§2');
+assert(brief.text.includes('§3 How to approve'), '§3');
+assert(brief.text.includes('1. '), 'numbered 1');
+assert(brief.text.includes('2. '), 'numbered 2');
+assert(brief.text.includes('CASEYS #3566'), 'payee in text');
+assert(brief.text.includes('https://cursor.com/agents/example'), 'agent url');
+assert(brief.html.includes('<ol>'), 'html list');
+assert(brief.html.includes('approve'), 'html approve hint');
+assert(brief.html.includes('Open Cursor agent'), 'html agent link');
+
+const empty = formatBookkeepingBrief({
+  generatedAt: '2026-10-07T12:00:00.000Z',
+  bankFeed: { transactions: [] },
+  qbo: {},
+  errors: [],
+});
+assert(/no new bank lines/i.test(empty.subject), 'empty subject');
+
+console.log('bookkeepingBrief.test.js: all assertions passed');
