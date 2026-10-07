@@ -19,6 +19,7 @@ import {
   markTransactionsProcessed,
 } from '../services/simplefin.js';
 import { buildStagingReport } from '../services/bankStaging.js';
+import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import {
   getSherwinWilliamsBills,
@@ -219,7 +220,7 @@ async function runJobberBatch(actions = []) {
  * Read-only bookkeeping snapshot for scheduled CFO reviews.
  * Does NOT write to QuickBooks (QBO writes stay on separate tools).
  */
-async function runBookkeepingReview(args = {}) {
+export async function runBookkeepingReview(args = {}) {
   const out = {
     generatedAt: new Date().toISOString(),
     bankFeed: null,
@@ -604,6 +605,51 @@ export const toolDefinitions = [
       required: ['transactionId', 'transactionType'],
     },
   },
+  {
+    name: 'email_bookkeeping_brief',
+    description:
+      'STAGE-ONLY: run bookkeeping_review (bank staging + cash, no QBO writes), email a numbered §1/§2/§3 brief to BOOKKEEPING_NOTIFY_EMAIL (bootstrap: brevee12@gmail.com via Resend onboarding@resend.dev). Includes CURSOR_AGENT_URL for approve-by-number in Cursor chat — not Slack. Health-gated when SimpleFIN/QBO/Resend missing. Use dryRun to preview without sending.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: {
+          type: 'string',
+          description:
+            'Override recipient (default BOOKKEEPING_NOTIFY_EMAIL / brevee12@gmail.com)',
+        },
+        startDate: {
+          type: 'string',
+          description: 'Bank feed lower bound YYYY-MM-DD',
+        },
+        includeProcessed: {
+          type: 'boolean',
+          description:
+            'Include already-seen bank txs (default false — morning stage-only)',
+        },
+        includeSherwinBills: {
+          type: 'boolean',
+          description: 'Include Sherwin bills sample (default true)',
+        },
+        maxItems: {
+          type: 'number',
+          description: 'Max numbered staging lines in the email (default 80)',
+        },
+        agentUrl: {
+          type: 'string',
+          description:
+            'Cursor agent/chat URL for approve-by-number (default CURSOR_AGENT_URL)',
+        },
+        dryRun: {
+          type: 'boolean',
+          description: 'Format brief only; do not call Resend (default false)',
+        },
+        skipHealthGate: {
+          type: 'boolean',
+          description: 'Skip SimpleFIN/QBO/Resend preflight (default false)',
+        },
+      },
+    },
+  },
 ];
 
 /** Dispatch a tool call by name */
@@ -623,6 +669,23 @@ export async function callTool(name, args = {}) {
       case 'bookkeeping_review': {
         const review = await runBookkeepingReview(args);
         return ok(review);
+      }
+
+      case 'email_bookkeeping_brief': {
+        const result = await runBookkeepingNotify({
+          runReview: runBookkeepingReview,
+          to: args.to,
+          agentUrl: args.agentUrl,
+          dryRun: Boolean(args.dryRun),
+          skipHealthGate: Boolean(args.skipHealthGate),
+          maxItems: args.maxItems,
+          reviewArgs: {
+            startDate: args.startDate,
+            includeProcessed: Boolean(args.includeProcessed),
+            includeSherwinBills: args.includeSherwinBills,
+          },
+        });
+        return ok(result);
       }
 
       // --- QBO writes (separate Allows) ---

@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { buildAuthorizeUrl, exchangeCodeForTokens, ensureJobberSession } from './jobber/oauth.js';
 import { hasTokens, clearTokens, getJobberAuthStatus } from './jobber/tokenStore.js';
-import { toolDefinitions, callTool } from './src/mcp/tools.js';
+import { toolDefinitions, callTool, runBookkeepingReview } from './src/mcp/tools.js';
 import {
   buildQboAuthorizeUrl,
   exchangeQboCode,
@@ -21,6 +21,8 @@ import {
   getAccessUrl,
 } from './src/services/simplefin.js';
 import { durableSyncConfigured } from './src/lib/durableTokens.js';
+import { emailConfigured, defaultNotifyEmail } from './src/services/email.js';
+import { runBookkeepingNotify } from './src/services/bookkeepingNotify.js';
 
 const app = express();
 app.use(express.json());
@@ -116,7 +118,18 @@ app.get('/health', async (req, res) => {
       SIMPLEFIN_ACCESS_URL: Boolean(process.env.SIMPLEFIN_ACCESS_URL),
       RENDER_API_KEY: Boolean(process.env.RENDER_API_KEY),
       RENDER_SERVICE_ID: Boolean(process.env.RENDER_SERVICE_ID),
+      RESEND_API_KEY: Boolean(process.env.RESEND_API_KEY),
+      RESEND_FROM: Boolean(
+        process.env.RESEND_FROM || process.env.BOOKKEEPING_EMAIL_FROM
+      ),
+      BOOKKEEPING_NOTIFY_EMAIL: Boolean(process.env.BOOKKEEPING_NOTIFY_EMAIL),
+      CURSOR_AGENT_URL: Boolean(
+        process.env.CURSOR_AGENT_URL ||
+          process.env.BOOKKEEPING_CURSOR_AGENT_URL
+      ),
     },
+    emailConfigured: emailConfigured(),
+    bookkeepingNotifyEmail: defaultNotifyEmail(),
   });
 });
 
@@ -294,6 +307,47 @@ app.get('/qbo/disconnect', async (_req, res) => {
   );
 });
 
+/**
+ * Stage-only bookkeeping brief → email (Resend).
+ * Body: { to?, startDate?, includeProcessed?, dryRun?, agentUrl?, maxItems?, skipHealthGate? }
+ * Optional header: x-bookkeeping-notify-secret (when BOOKKEEPING_NOTIFY_SECRET is set).
+ */
+app.post('/bookkeeping/notify', async (req, res) => {
+  const secret = process.env.BOOKKEEPING_NOTIFY_SECRET?.trim();
+  if (secret) {
+    const provided =
+      req.get('x-bookkeeping-notify-secret') ||
+      (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+    if (provided !== secret) {
+      res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return;
+    }
+  }
+
+  try {
+    const body = req.body || {};
+    const result = await runBookkeepingNotify({
+      runReview: runBookkeepingReview,
+      to: body.to,
+      agentUrl: body.agentUrl,
+      dryRun: Boolean(body.dryRun),
+      skipHealthGate: Boolean(body.skipHealthGate),
+      probeQbo: Boolean(body.probeQbo),
+      maxItems: body.maxItems,
+      reviewArgs: {
+        startDate: body.startDate,
+        includeProcessed: Boolean(body.includeProcessed),
+        includeSherwinBills: body.includeSherwinBills,
+        accountId: body.accountId,
+      },
+    });
+    const status = result.blocked ? 503 : 200;
+    res.status(status).json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // --- SimpleFIN one-time claim helper (optional HTTP) ---
 app.post('/simplefin/claim', async (req, res) => {
   try {
@@ -362,6 +416,7 @@ app.listen(PORT, () => {
   console.log(`Spark CFO MCP server running on port ${PORT}`);
   console.log(`Health:     http://localhost:${PORT}/health`);
   console.log(`MCP:        POST http://localhost:${PORT}/mcp`);
+  console.log(`Notify:     POST http://localhost:${PORT}/bookkeeping/notify`);
   console.log(`Jobber:     http://localhost:${PORT}/oauth/start`);
   console.log(`QuickBooks: http://localhost:${PORT}/qbo/auth`);
 
