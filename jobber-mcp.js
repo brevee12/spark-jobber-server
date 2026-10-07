@@ -338,6 +338,10 @@ app.post('/bookkeeping/notify', async (req, res) => {
       reviewArgs: {
         startDate: body.startDate,
         includeProcessed: Boolean(body.includeProcessed),
+        excludeBookedInQbo:
+          body.excludeBookedInQbo === undefined
+            ? true
+            : Boolean(body.excludeBookedInQbo),
         includeSherwinBills: body.includeSherwinBills,
         accountId: body.accountId,
       },

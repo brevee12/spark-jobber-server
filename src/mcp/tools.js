@@ -21,6 +21,7 @@ import {
   listProcessedTransactionIds,
 } from '../services/simplefin.js';
 import { buildStagingReport } from '../services/bankStaging.js';
+import { filterOutstandingAgainstQbo } from '../services/qboPostedMatch.js';
 import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import {
@@ -242,11 +243,24 @@ export async function runBookkeepingReview(args = {}) {
 
   if (wantBank) {
     try {
-      const txs = await fetchSimpleFinTransactions({
+      let txs = await fetchSimpleFinTransactions({
         startDate: args.startDate,
         accountId: args.accountId,
         includeProcessed: Boolean(args.includeProcessed),
       });
+      // Default: drop rows already booked in QBO (Purchase/Deposit/Transfer).
+      // Without this, "outstanding" = entire SimpleFIN history minus a tiny seen list.
+      const excludeBookedInQbo = args.excludeBookedInQbo !== false;
+      let qboMatchSummary = null;
+      if (excludeBookedInQbo && txs.length) {
+        const filtered = await filterOutstandingAgainstQbo(txs, {
+          startDate: args.startDate,
+          endDate: args.endDate,
+          onlyOutstanding: true,
+        });
+        txs = filtered.transactions;
+        qboMatchSummary = filtered.summary;
+      }
       if (args.markSeen && txs.length) {
         markTransactionsProcessed(txs.map((t) => t.id));
       }
@@ -257,6 +271,7 @@ export async function runBookkeepingReview(args = {}) {
         policy: staging.policy,
         accounts: staging.accounts,
         transactions: staging.transactions,
+        qboMatch: qboMatchSummary,
       };
     } catch (err) {
       out.errors.push({ section: 'bankFeed', error: err.message });
@@ -463,7 +478,13 @@ export const toolDefinitions = [
         },
         includeProcessed: {
           type: 'boolean',
-          description: 'Include already-seen bank txs (default false)',
+          description:
+            'Include email-seen bank txs (SIMPLEFIN_PROCESSED_IDS; default false)',
+        },
+        excludeBookedInQbo: {
+          type: 'boolean',
+          description:
+            'Exclude SimpleFIN rows that already match a QBO Purchase/Deposit/Transfer (default true). This is the real outstanding filter.',
         },
         markSeen: {
           type: 'boolean',
@@ -648,7 +669,12 @@ export const toolDefinitions = [
         includeProcessed: {
           type: 'boolean',
           description:
-            'Include already-seen bank txs (default false — morning stage-only)',
+            'Include email-seen bank txs (default false — morning stage-only)',
+        },
+        excludeBookedInQbo: {
+          type: 'boolean',
+          description:
+            'Exclude rows already booked in QBO (default true)',
         },
         includeSherwinBills: {
           type: 'boolean',
@@ -706,6 +732,7 @@ export async function callTool(name, args = {}) {
           reviewArgs: {
             startDate: args.startDate,
             includeProcessed: Boolean(args.includeProcessed),
+            excludeBookedInQbo: args.excludeBookedInQbo,
             includeSherwinBills: args.includeSherwinBills,
           },
         });

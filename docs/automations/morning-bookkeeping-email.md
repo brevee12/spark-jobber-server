@@ -43,6 +43,7 @@ You are the Veenstra Painting morning bookkeeping runner.
 
 1. Call MCP tool email_bookkeeping_brief with:
    - includeProcessed: false
+   - excludeBookedInQbo: true   # real outstanding = not already in QBO
    - dryRun: false
    - agentUrl: <this chat / agent URL if not already in CURSOR_AGENT_URL>
    - startDate optional (server defaults to last 14 days — SimpleFIN needs a start-date)
