@@ -19,6 +19,7 @@ import {
   hasSimpleFinAccess,
   claimSetupToken,
   getAccessUrl,
+  markTransactionsProcessedDurable,
 } from './src/services/simplefin.js';
 import { durableSyncConfigured } from './src/lib/durableTokens.js';
 import { emailConfigured, defaultNotifyEmail } from './src/services/email.js';
@@ -343,6 +344,41 @@ app.post('/bookkeeping/notify', async (req, res) => {
     });
     const status = result.blocked ? 503 : 200;
     res.status(status).json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Mark staging lines seen after approve/skip in Cursor (dedupe only — no QBO writes).
+ * Body: { transactionIds: string[], durable?: boolean }
+ */
+app.post('/bookkeeping/mark-seen', async (req, res) => {
+  const secret = process.env.BOOKKEEPING_NOTIFY_SECRET?.trim();
+  if (secret) {
+    const provided =
+      req.get('x-bookkeeping-notify-secret') ||
+      (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+    if (provided !== secret) {
+      res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return;
+    }
+  }
+
+  try {
+    const ids = Array.isArray(req.body?.transactionIds)
+      ? req.body.transactionIds
+      : [];
+    if (!ids.length) {
+      res.status(400).json({ ok: false, error: 'transactionIds required' });
+      return;
+    }
+    const result = await markTransactionsProcessedDurable(ids);
+    res.json({
+      ok: true,
+      ...result,
+      note: 'Marked seen for email dedupe only — no QuickBooks writes.',
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

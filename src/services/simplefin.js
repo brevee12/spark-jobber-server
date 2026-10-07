@@ -1,7 +1,10 @@
 import { readJson, writeJson } from '../lib/jsonStore.js';
+import { persistEnvVars } from '../lib/durableTokens.js';
 
 const ACCESS_URL_FILE = '.simplefin-access.json';
 const PROCESSED_FILE = '.simplefin-processed.json';
+/** Durable mirror on Render (JSON string array). Avoids re-emailing after deploys. */
+const PROCESSED_ENV_KEY = 'SIMPLEFIN_PROCESSED_IDS';
 
 /**
  * Claim a one-time SimpleFIN setup token → permanent access URL.
@@ -97,6 +100,13 @@ export function toUnixStart(startDate) {
   return Math.floor(d.getTime() / 1000);
 }
 
+/** YYYY-MM-DD — SimpleFIN often returns no txs without an explicit start-date. */
+export function defaultBankStartDate(daysBack = 14) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - Math.max(1, Number(daysBack) || 14));
+  return d.toISOString().slice(0, 10);
+}
+
 async function fetchAccountsRaw({ startDate, accountId } = {}) {
   const accessUrl = await ensureAccessUrl();
   const { base, username, password } = parseAccessUrl(accessUrl);
@@ -142,25 +152,73 @@ export async function fetchSimpleFinAccounts() {
   }));
 }
 
-function loadProcessed() {
-  const stored = readJson(PROCESSED_FILE, { ids: [] });
-  return new Set(stored.ids || []);
+function idsFromEnv() {
+  const raw = process.env[PROCESSED_ENV_KEY]?.trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map(String);
+  } catch {
+    // comma / whitespace separated fallback
+    return raw.split(/[\s,]+/).filter(Boolean);
+  }
+  return [];
 }
 
+function loadProcessed() {
+  const stored = readJson(PROCESSED_FILE, { ids: [] });
+  const set = new Set([...(stored.ids || []).map(String), ...idsFromEnv()]);
+  return set;
+}
+
+function persistProcessedLocal(set) {
+  const ids = [...set].sort();
+  writeJson(PROCESSED_FILE, {
+    ids,
+    updatedAt: new Date().toISOString(),
+  });
+  // Keep process.env in sync for this instance (no Render PUT unless durable).
+  process.env[PROCESSED_ENV_KEY] = JSON.stringify(ids);
+  return ids;
+}
+
+/**
+ * Mark bank txs as already staged/approved so morning briefs skip them (local + env mirror).
+ * @returns {number} total processed id count
+ */
 export function markTransactionsProcessed(transactionIds = []) {
   const set = loadProcessed();
   for (const id of transactionIds) {
     if (id) set.add(String(id));
   }
-  writeJson(PROCESSED_FILE, {
-    ids: [...set],
-    updatedAt: new Date().toISOString(),
-  });
-  return set.size;
+  return persistProcessedLocal(set).length;
+}
+
+/**
+ * Same as markTransactionsProcessed, then persist SIMPLEFIN_PROCESSED_IDS on Render
+ * so deploys do not re-stage the same lines (triggers env sync only when changed).
+ */
+export async function markTransactionsProcessedDurable(transactionIds = []) {
+  const before = loadProcessed().size;
+  const count = markTransactionsProcessed(transactionIds);
+  const ids = listProcessedTransactionIds();
+  const added = Math.max(0, count - before);
+  const durable =
+    added > 0
+      ? await persistEnvVars(
+          { [PROCESSED_ENV_KEY]: JSON.stringify(ids) },
+          { onlyIfChanged: true }
+        )
+      : { synced: true, updated: [], skipped: [PROCESSED_ENV_KEY] };
+  return { count, added, ids, durable };
 }
 
 export function isTransactionProcessed(id) {
   return loadProcessed().has(String(id));
+}
+
+export function listProcessedTransactionIds() {
+  return [...loadProcessed()].sort();
 }
 
 /**
@@ -171,7 +229,9 @@ export async function fetchSimpleFinTransactions({
   accountId,
   includeProcessed = false,
 } = {}) {
-  const data = await fetchAccountsRaw({ startDate, accountId });
+  // Without start-date, SimpleFIN commonly returns an empty pending window.
+  const effectiveStart = startDate || defaultBankStartDate(14);
+  const data = await fetchAccountsRaw({ startDate: effectiveStart, accountId });
   const processed = loadProcessed();
   const rows = [];
 

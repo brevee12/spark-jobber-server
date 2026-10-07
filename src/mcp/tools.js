@@ -17,6 +17,8 @@ import {
 import {
   fetchSimpleFinTransactions,
   markTransactionsProcessed,
+  markTransactionsProcessedDurable,
+  listProcessedTransactionIds,
 } from '../services/simplefin.js';
 import { buildStagingReport } from '../services/bankStaging.js';
 import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
@@ -606,6 +608,27 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'bookkeeping_mark_seen',
+    description:
+      'After Brennan approves/skips numbered staging lines in Cursor chat: mark those SimpleFIN transaction ids as processed so the next morning brief does not re-list them. Does NOT write to QuickBooks. Use durable:true to persist ids across Render deploys. For feed-only CC lines, approve means clear in the QBO Banking feed — do not also call qbo_create_* (that would duplicate).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        transactionIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'SimpleFIN transaction ids (TRN-...) from the brief',
+        },
+        durable: {
+          type: 'boolean',
+          description:
+            'Persist SIMPLEFIN_PROCESSED_IDS to Render env (default true)',
+        },
+      },
+      required: ['transactionIds'],
+    },
+  },
+  {
     name: 'email_bookkeeping_brief',
     description:
       'STAGE-ONLY: run bookkeeping_review (bank staging + cash, no QBO writes), email a numbered §1/§2/§3 brief to BOOKKEEPING_NOTIFY_EMAIL (bootstrap: brevee12@gmail.com via Resend onboarding@resend.dev). Includes CURSOR_AGENT_URL for approve-by-number in Cursor chat — not Slack. Health-gated when SimpleFIN/QBO/Resend missing. Use dryRun to preview without sending.',
@@ -619,7 +642,8 @@ export const toolDefinitions = [
         },
         startDate: {
           type: 'string',
-          description: 'Bank feed lower bound YYYY-MM-DD',
+          description:
+            'Bank feed lower bound YYYY-MM-DD (default: last 14 days)',
         },
         includeProcessed: {
           type: 'boolean',
@@ -686,6 +710,29 @@ export async function callTool(name, args = {}) {
           },
         });
         return ok(result);
+      }
+
+      case 'bookkeeping_mark_seen': {
+        const ids = Array.isArray(args.transactionIds)
+          ? args.transactionIds
+          : [];
+        if (!ids.length) {
+          throw new Error('transactionIds required');
+        }
+        const durable = args.durable !== false;
+        const result = durable
+          ? await markTransactionsProcessedDurable(ids)
+          : {
+              count: markTransactionsProcessed(ids),
+              added: ids.length,
+              ids: listProcessedTransactionIds(),
+              durable: null,
+            };
+        return ok({
+          ...result,
+          marked: ids.map(String),
+          note: 'Marked seen for email dedupe only — no QuickBooks writes.',
+        });
       }
 
       // --- QBO writes (separate Allows) ---
