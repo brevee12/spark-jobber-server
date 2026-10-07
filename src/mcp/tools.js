@@ -22,6 +22,10 @@ import {
 } from '../services/simplefin.js';
 import { buildStagingReport } from '../services/bankStaging.js';
 import { filterOutstandingAgainstQbo } from '../services/qboPostedMatch.js';
+import {
+  loadSuggestionContext,
+  suggestQboAccounts,
+} from '../services/qboCategorySuggest.js';
 import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import {
@@ -252,12 +256,14 @@ export async function runBookkeepingReview(args = {}) {
       // Without this, "outstanding" = entire SimpleFIN history minus a tiny seen list.
       const excludeBookedInQbo = args.excludeBookedInQbo !== false;
       let qboMatchSummary = null;
+      let feedLines = txs;
       if (excludeBookedInQbo && txs.length) {
         const filtered = await filterOutstandingAgainstQbo(txs, {
           startDate: args.startDate,
           endDate: args.endDate,
           onlyOutstanding: true,
         });
+        feedLines = [...filtered.outstanding, ...filtered.matched];
         txs = filtered.transactions;
         qboMatchSummary = filtered.summary;
       }
@@ -266,12 +272,34 @@ export async function runBookkeepingReview(args = {}) {
       }
       // Staging annotations tell Spark how to clear each row (esp. CC refunds).
       const staging = buildStagingReport(txs);
+      let transactions = staging.transactions;
+      let accounts = staging.accounts;
+      let coaSuggestions = null;
+      if (args.suggestQboAccounts !== false && transactions.length) {
+        try {
+          const ctx = await loadSuggestionContext();
+          transactions = suggestQboAccounts(transactions, { ...ctx, feedLines });
+          const byId = new Map(transactions.map((t) => [t.id, t]));
+          accounts = accounts.map((a) => ({
+            ...a,
+            transactions: a.transactions.map((t) => byId.get(t.id) || t),
+          }));
+          coaSuggestions = {
+            coaAccounts: ctx.accounts.length,
+            historyPurchases: ctx.history.length,
+            historyError: ctx.historyError,
+          };
+        } catch (err) {
+          out.errors.push({ section: 'bankFeed.coaSuggestions', error: err.message });
+        }
+      }
       out.bankFeed = {
         count: staging.transactionCount,
         policy: staging.policy,
-        accounts: staging.accounts,
-        transactions: staging.transactions,
+        accounts,
+        transactions,
         qboMatch: qboMatchSummary,
+        coaSuggestions,
       };
     } catch (err) {
       out.errors.push({ section: 'bankFeed', error: err.message });
