@@ -619,7 +619,8 @@ export const toolDefinitions = [
         },
         startDate: {
           type: 'string',
-          description: 'Bank feed lower bound YYYY-MM-DD',
+          description:
+            'Bank feed lower bound YYYY-MM-DD (default: last 14 days)',
         },
         includeProcessed: {
           type: 'boolean',

@@ -97,6 +97,13 @@ export function toUnixStart(startDate) {
   return Math.floor(d.getTime() / 1000);
 }
 
+/** YYYY-MM-DD — SimpleFIN often returns no txs without an explicit start-date. */
+export function defaultBankStartDate(daysBack = 14) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - Math.max(1, Number(daysBack) || 14));
+  return d.toISOString().slice(0, 10);
+}
+
 async function fetchAccountsRaw({ startDate, accountId } = {}) {
   const accessUrl = await ensureAccessUrl();
   const { base, username, password } = parseAccessUrl(accessUrl);
@@ -171,7 +178,9 @@ export async function fetchSimpleFinTransactions({
   accountId,
   includeProcessed = false,
 } = {}) {
-  const data = await fetchAccountsRaw({ startDate, accountId });
+  // Without start-date, SimpleFIN commonly returns an empty pending window.
+  const effectiveStart = startDate || defaultBankStartDate(14);
+  const data = await fetchAccountsRaw({ startDate: effectiveStart, accountId });
   const processed = loadProcessed();
   const rows = [];
 

@@ -41,14 +41,10 @@ const CATEGORY_RULES = [
     note: 'Insurance premium',
   },
   {
-    test: /casey|kwik\s*star|shell|bp\s|#\d{3,}|fuel|gas\s/i,
-    category: 'Fuel / Auto',
-    note: 'Fuel or convenience — confirm job vs personal',
-  },
-  {
-    test: /verizon|vzwrlss|at&t|t-mobile|comcast/i,
-    category: 'Telephone / Utilities',
-    note: 'Phone / connectivity',
+    // Meals / retail before Fuel — store "#1234" must not steal these.
+    test: /taco\s*bell|burger\s*king|rib\s*shack|mcdonald|subway|chipotle/i,
+    category: 'Meals & Entertainment',
+    note: 'Meal — confirm business purpose',
   },
   {
     test: /amazon|wal-?mart|wm\s*super|theisen|farm\s*and\s*home|knoxville\s*farm/i,
@@ -56,9 +52,14 @@ const CATEGORY_RULES = [
     note: 'Retail — split job materials vs office/tools if needed',
   },
   {
-    test: /taco\s*bell|burger\s*king|rib\s*shack|mcdonald|subway|chipotle/i,
-    category: 'Meals & Entertainment',
-    note: 'Meal — confirm business purpose',
+    test: /casey|kwik\s*star|\bshell\b|\bbp\b|fuel|gas\s*station|petrol/i,
+    category: 'Fuel / Auto',
+    note: 'Fuel or convenience — confirm job vs personal',
+  },
+  {
+    test: /verizon|vzwrlss|at&t|t-mobile|comcast/i,
+    category: 'Telephone / Utilities',
+    note: 'Phone / connectivity',
   },
   {
     test: /ulrich\s*ford|ford|lincoln|auto\s*repair|napa|o'?reilly/i,
