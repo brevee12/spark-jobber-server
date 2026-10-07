@@ -300,6 +300,20 @@ export async function runBookkeepingReview(args = {}) {
         transactions,
         qboMatch: qboMatchSummary,
         coaSuggestions,
+        ...(args.includeMatched
+          ? {
+              matched: feedLines
+                .filter((t) => t.alreadyInQbo)
+                .map((t) => ({
+                  id: t.id,
+                  accountName: t.accountName,
+                  date: t.date,
+                  amount: t.amount,
+                  description: t.description,
+                  qboMatch: t.qboMatch,
+                })),
+            }
+          : {}),
       };
     } catch (err) {
       out.errors.push({ section: 'bankFeed', error: err.message });
@@ -513,6 +527,16 @@ export const toolDefinitions = [
           type: 'boolean',
           description:
             'Exclude SimpleFIN rows that already match a QBO Purchase/Deposit/Transfer (default true). This is the real outstanding filter.',
+        },
+        includeMatched: {
+          type: 'boolean',
+          description:
+            'Also return bankFeed.matched: feed lines already in QBO with the QBO record they matched (duplicate audit)',
+        },
+        suggestQboAccounts: {
+          type: 'boolean',
+          description:
+            'Map each line to an existing QBO COA account via payee history (default true)',
         },
         markSeen: {
           type: 'boolean',

@@ -148,7 +148,7 @@ export function buildPayeeHistory(purchases = [], accounts = []) {
   return history;
 }
 
-function historyPick(tx, history) {
+function historyPick(tx, history, { strict = false } = {}) {
   const key = vendorKey(tx.description);
   if (!key.length) return null;
   const attempt = (tokens) => {
@@ -165,7 +165,7 @@ function historyPick(tx, history) {
     const total = ranked.reduce((s, r) => s + r.n, 0);
     return { ...ranked[0], total };
   };
-  return attempt(key) || (key.length > 1 && key[0].length >= 5 ? attempt([key[0]]) : null);
+  return attempt(key) || (!strict && key.length > 1 && key[0].length >= 5 ? attempt([key[0]]) : null);
 }
 
 function checkAmountPick(tx, history) {
@@ -237,6 +237,14 @@ export function suggestQboAccounts(
       };
     }
 
+    const payrollHist = (isPayroll(desc) || isPayrollTax(desc)) && historyPick(tx, history, { strict: true });
+    if (payrollHist) {
+      return {
+        ...tx,
+        ...suggestion('history', payrollHist.account.name, payrollHist.account,
+          `${payrollHist.n}/${payrollHist.total} past ${isPayrollTax(desc) ? 'payroll tax' : 'payroll'} drafts were booked here`),
+      };
+    }
     if (isPayroll(desc)) {
       return {
         ...tx,
