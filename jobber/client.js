@@ -665,10 +665,490 @@ const SEARCH_CLIENTS = `
       nodes {
         id
         name
+        firstName
+        lastName
+        companyName
+        isLead
+        isCompany
+        emails {
+          address
+          primary
+        }
+        phones {
+          number
+          primary
+        }
+        billingAddress {
+          street1
+          street2
+          city
+          province
+          postalCode
+        }
+        jobberWebUri
+        createdAt
+        updatedAt
+      }
+      totalCount
+    }
+  }
+`;
+
+/**
+ * Search Jobber clients by name / company / contact text.
+ */
+export async function searchClients({ query, limit = 15 } = {}) {
+  const searchTerm = String(query || '').trim();
+  if (!searchTerm) throw new Error('Provide query to search clients');
+
+  const first = Math.min(Math.max(Number(limit) || 15, 1), 50);
+  const data = await jobberGraphql(SEARCH_CLIENTS, { first, searchTerm });
+  const nodes = data?.clients?.nodes || [];
+
+  const clients = nodes.map((c) => ({
+    id: c.id,
+    name: c.name,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    companyName: c.companyName,
+    isLead: c.isLead,
+    isCompany: c.isCompany,
+    email:
+      (c.emails || []).find((e) => e.primary)?.address ||
+      c.emails?.[0]?.address ||
+      null,
+    phone:
+      (c.phones || []).find((p) => p.primary)?.number ||
+      c.phones?.[0]?.number ||
+      null,
+    billingAddress: c.billingAddress || null,
+    jobberWebUri: c.jobberWebUri,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  }));
+
+  return {
+    count: clients.length,
+    totalCount: data?.clients?.totalCount ?? clients.length,
+    clients,
+  };
+}
+
+const SEARCH_QUOTES = `
+  query SearchQuotes($first: Int!, $filter: QuoteFilterAttributes, $searchTerm: String) {
+    quotes(first: $first, filter: $filter, searchTerm: $searchTerm) {
+      nodes {
+        id
+        quoteNumber
+        quoteStatus
+        title
+        message
+        amounts {
+          subtotal
+          total
+          depositAmount
+        }
+        client {
+          id
+          name
+        }
+        property {
+          id
+          address {
+            street1
+            city
+            province
+            postalCode
+          }
+        }
+        createdAt
+        updatedAt
+        sentAt
+        jobberWebUri
+      }
+      totalCount
+    }
+  }
+`;
+
+const SEARCH_QUOTES_NO_SEARCHTERM = `
+  query SearchQuotesNoTerm($first: Int!, $filter: QuoteFilterAttributes) {
+    quotes(first: $first, filter: $filter) {
+      nodes {
+        id
+        quoteNumber
+        quoteStatus
+        title
+        message
+        amounts {
+          subtotal
+          total
+          depositAmount
+        }
+        client {
+          id
+          name
+        }
+        property {
+          id
+          address {
+            street1
+            city
+            province
+            postalCode
+          }
+        }
+        createdAt
+        updatedAt
+        sentAt
+        jobberWebUri
+      }
+      totalCount
+    }
+  }
+`;
+
+function mapQuoteNode(q) {
+  return {
+    id: q.id,
+    quoteNumber: q.quoteNumber,
+    quoteStatus: q.quoteStatus,
+    title: q.title,
+    message: q.message,
+    amounts: q.amounts || null,
+    clientId: q.client?.id || null,
+    clientName: q.client?.name || null,
+    property: q.property
+      ? { id: q.property.id, address: q.property.address || null }
+      : null,
+    createdAt: q.createdAt,
+    updatedAt: q.updatedAt,
+    sentAt: q.sentAt,
+    jobberWebUri: q.jobberWebUri,
+  };
+}
+
+/**
+ * Search Jobber quotes (open drafts / by client / by text).
+ */
+export async function searchQuotes({
+  query,
+  clientId,
+  status,
+  limit = 20,
+} = {}) {
+  const first = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const filter = {};
+  if (clientId) filter.clientId = String(clientId);
+  if (status) {
+    const statuses = Array.isArray(status) ? status : [status];
+    filter.quoteStatus = statuses.map((s) => String(s).trim()).filter(Boolean);
+  }
+
+  const searchTerm = query != null && String(query).trim() ? String(query).trim() : null;
+  const variables = { first };
+  if (Object.keys(filter).length) variables.filter = filter;
+
+  let data;
+  try {
+    if (searchTerm) {
+      variables.searchTerm = searchTerm;
+      data = await jobberGraphql(SEARCH_QUOTES, variables);
+    } else {
+      data = await jobberGraphql(SEARCH_QUOTES_NO_SEARCHTERM, variables);
+    }
+  } catch (err) {
+    // Older schema may not accept searchTerm on quotes — retry without it
+    if (searchTerm && /searchTerm|Unknown argument/i.test(err.message || '')) {
+      data = await jobberGraphql(SEARCH_QUOTES_NO_SEARCHTERM, {
+        first,
+        filter: Object.keys(filter).length ? filter : undefined,
+      });
+      let nodes = (data?.quotes?.nodes || []).map(mapQuoteNode);
+      const needle = searchTerm.toLowerCase();
+      nodes = nodes.filter(
+        (q) =>
+          String(q.clientName || '').toLowerCase().includes(needle) ||
+          String(q.title || '').toLowerCase().includes(needle) ||
+          String(q.quoteNumber || '').toLowerCase().includes(needle) ||
+          String(q.property?.address?.street1 || '')
+            .toLowerCase()
+            .includes(needle)
+      );
+      return { count: nodes.length, totalCount: nodes.length, quotes: nodes };
+    }
+    throw err;
+  }
+
+  let quotes = (data?.quotes?.nodes || []).map(mapQuoteNode);
+
+  if (searchTerm && !variables.searchTerm) {
+    const needle = searchTerm.toLowerCase();
+    quotes = quotes.filter(
+      (q) =>
+        String(q.clientName || '').toLowerCase().includes(needle) ||
+        String(q.title || '').toLowerCase().includes(needle) ||
+        String(q.quoteNumber || '').toLowerCase().includes(needle)
+    );
+  }
+
+  return {
+    count: quotes.length,
+    totalCount: data?.quotes?.totalCount ?? quotes.length,
+    quotes,
+  };
+}
+
+const SEARCH_REQUESTS = `
+  query SearchRequests($first: Int!, $filter: RequestFilterAttributes) {
+    requests(first: $first, filter: $filter) {
+      nodes {
+        id
+        title
+        requestStatus
+        source
+        contactName
+        companyName
+        email
+        phone
+        client {
+          id
+          name
+          isLead
+        }
+        property {
+          id
+          address {
+            street1
+            city
+            province
+            postalCode
+          }
+        }
+        createdAt
+        updatedAt
+        jobberWebUri
+      }
+      totalCount
+    }
+  }
+`;
+
+/**
+ * List/filter Jobber work requests (inbound quote leads).
+ */
+export async function searchRequests({
+  status,
+  query,
+  limit = 25,
+} = {}) {
+  const first = Math.min(Math.max(Number(limit) || 25, 1), 50);
+  const filter = {};
+  if (status) {
+    const statuses = Array.isArray(status) ? status : [status];
+    filter.requestStatus = statuses.map((s) => String(s).trim()).filter(Boolean);
+  }
+
+  const data = await jobberGraphql(SEARCH_REQUESTS, {
+    first,
+    filter: Object.keys(filter).length ? filter : undefined,
+  });
+
+  let requests = (data?.requests?.nodes || []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    requestStatus: r.requestStatus,
+    source: r.source,
+    contactName: r.contactName,
+    companyName: r.companyName,
+    email: r.email,
+    phone: r.phone,
+    clientId: r.client?.id || null,
+    clientName: r.client?.name || null,
+    isLead: r.client?.isLead ?? null,
+    property: r.property
+      ? { id: r.property.id, address: r.property.address || null }
+      : null,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    jobberWebUri: r.jobberWebUri,
+  }));
+
+  if (query && String(query).trim()) {
+    const needle = String(query).trim().toLowerCase();
+    requests = requests.filter(
+      (r) =>
+        String(r.contactName || '').toLowerCase().includes(needle) ||
+        String(r.companyName || '').toLowerCase().includes(needle) ||
+        String(r.clientName || '').toLowerCase().includes(needle) ||
+        String(r.title || '').toLowerCase().includes(needle) ||
+        String(r.email || '').toLowerCase().includes(needle) ||
+        String(r.property?.address?.street1 || '')
+          .toLowerCase()
+          .includes(needle)
+    );
+  }
+
+  return {
+    count: requests.length,
+    totalCount: data?.requests?.totalCount ?? requests.length,
+    requests,
+  };
+}
+
+const EDIT_QUOTE = `
+  mutation EditQuote($quoteId: EncodedId!, $attributes: QuoteEditAttributes!) {
+    quoteEdit(quoteId: $quoteId, attributes: $attributes) {
+      quote {
+        id
+        quoteNumber
+        quoteStatus
+        title
+        message
+        amounts {
+          subtotal
+          total
+          depositAmount
+        }
+        client {
+          id
+          name
+        }
+        updatedAt
+        jobberWebUri
+      }
+      userErrors {
+        message
+        path
       }
     }
   }
 `;
+
+const DELETE_QUOTE_LINE_ITEMS = `
+  mutation DeleteQuoteLineItems($quoteId: EncodedId!, $lineItemIds: [EncodedId!]!) {
+    quoteDeleteLineItems(quoteId: $quoteId, lineItemIds: $lineItemIds) {
+      deletedLineItemIds
+      lineItems {
+        id
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+/**
+ * Edit an existing Jobber quote (title/message/deposit) and optionally replace line items.
+ */
+export async function editQuote({
+  quoteId,
+  title,
+  message,
+  depositAmount,
+  lineItems,
+  replaceLineItems = false,
+} = {}) {
+  if (!quoteId) throw new Error('quoteId is required');
+
+  const attributes = {};
+  if (title != null) attributes.title = title;
+  if (message != null) attributes.message = message;
+  if (depositAmount != null) attributes.depositAmount = Number(depositAmount);
+
+  let quote = null;
+  if (Object.keys(attributes).length) {
+    const data = await jobberGraphql(EDIT_QUOTE, {
+      quoteId: String(quoteId),
+      attributes,
+    });
+    const result = data?.quoteEdit;
+    if (result?.userErrors?.length) {
+      throw new Error(result.userErrors.map((e) => e.message).join('; '));
+    }
+    quote = result?.quote || null;
+  }
+
+  let createdLineItems = [];
+  if (Array.isArray(lineItems) && (replaceLineItems || lineItems.length)) {
+    if (replaceLineItems) {
+      const existing = await getQuote(quoteId);
+      const ids = (existing.lineItems || []).map((li) => li.id).filter(Boolean);
+      if (ids.length) {
+        try {
+          const del = await jobberGraphql(DELETE_QUOTE_LINE_ITEMS, {
+            quoteId: String(quoteId),
+            lineItemIds: ids,
+          });
+          const delResult = del?.quoteDeleteLineItems;
+          if (delResult?.userErrors?.length) {
+            throw new Error(
+              delResult.userErrors.map((e) => e.message).join('; ')
+            );
+          }
+        } catch (err) {
+          // Alternate arg shape used on some API versions
+          if (/lineItemIds|Unknown argument/i.test(err.message || '')) {
+            const ALT_DELETE = `
+              mutation DeleteQuoteLineItemsAlt($quoteId: EncodedId!, $lineItems: QuoteDeleteLineItemsAttributes!) {
+                quoteDeleteLineItems(quoteId: $quoteId, lineItems: $lineItems) {
+                  userErrors { message path }
+                }
+              }
+            `;
+            const del = await jobberGraphql(ALT_DELETE, {
+              quoteId: String(quoteId),
+              lineItems: { lineItemIds: ids },
+            });
+            const delResult = del?.quoteDeleteLineItems;
+            if (delResult?.userErrors?.length) {
+              throw new Error(
+                delResult.userErrors.map((e) => e.message).join('; ')
+              );
+            }
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
+
+    if (lineItems.length) {
+      const normalized = lineItems.map((item) => {
+        const row = {
+          name: item.name || item.description || 'Line item',
+          quantity: item.quantity != null ? Number(item.quantity) : 1,
+          unitPrice: Number(item.unitPrice ?? item.price ?? 0),
+        };
+        if (item.description) row.description = item.description;
+        if (typeof item.taxable === 'boolean') row.taxable = item.taxable;
+        return row;
+      });
+
+      const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
+        quoteId: String(quoteId),
+        lineItems: { lineItems: normalized },
+      });
+      const lineResult = lineData?.quoteCreateLineItems;
+      if (lineResult?.userErrors?.length) {
+        throw new Error(
+          `Quote updated (${quoteId}) but line items failed: ` +
+            lineResult.userErrors.map((e) => e.message).join('; ')
+        );
+      }
+      createdLineItems = lineResult?.lineItems || [];
+    }
+  }
+
+  const fresh = await getQuote(quoteId);
+  return {
+    ...fresh,
+    ...(quote || {}),
+    lineItems: createdLineItems.length ? createdLineItems : fresh.lineItems,
+  };
+}
 
 const SEARCH_INVOICES = `
   query SearchInvoices($first: Int!, $filter: InvoiceFilterAttributes) {
