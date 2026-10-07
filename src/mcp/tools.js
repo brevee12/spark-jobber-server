@@ -16,6 +16,7 @@ import {
 } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
+  getSimpleFinCacheInfo,
   markTransactionsProcessed,
   markTransactionsProcessedDurable,
   listProcessedTransactionIds,
@@ -300,6 +301,7 @@ export async function runBookkeepingReview(args = {}) {
         transactions,
         qboMatch: qboMatchSummary,
         coaSuggestions,
+        simplefin: getSimpleFinCacheInfo(),
         ...(args.includeMatched
           ? {
               matched: feedLines
