@@ -90,27 +90,34 @@ export async function runQuoteMeeting(args = {}) {
     args.propertyAddress?.street1 ||
     '';
 
-  const lookupQuery = [clientName, street].filter(Boolean).join(' ').trim();
+  // Search by name/phone alone — combining with street zeros Jobber searchTerm hits
+  const clientQuery =
+    clientName ||
+    args.phone ||
+    args.email ||
+    args.lastName ||
+    '';
+  const requestQuery = clientName || street || args.phone || '';
 
   const [clientSearch, requestSearch, openQuotesGlobal] = await Promise.all([
-    lookupQuery
-      ? searchClients({ query: lookupQuery, limit: 15 }).catch((err) => ({
+    clientQuery
+      ? searchClients({ query: clientQuery, limit: 15 }).catch((err) => ({
           count: 0,
           clients: [],
           error: err.message,
         }))
       : { count: 0, clients: [] },
-    lookupQuery
-      ? searchRequests({ query: lookupQuery, limit: 25 }).catch((err) => ({
+    requestQuery
+      ? searchRequests({ query: requestQuery, limit: 25 }).catch((err) => ({
           count: 0,
           requests: [],
           error: err.message,
         }))
-      : searchRequests({ status: ['new', 'overdue'], limit: 25 }).catch(
+      : searchRequests({ status: ['new', 'overdue', 'assessment_completed'], limit: 25 }).catch(
           (err) => ({ count: 0, requests: [], error: err.message })
         ),
     searchQuotes({
-      query: lookupQuery || undefined,
+      query: clientName || undefined,
       status: ['draft', 'awaiting_response', 'changes_requested'],
       limit: 20,
     }).catch((err) => ({ count: 0, quotes: [], error: err.message })),
@@ -307,6 +314,7 @@ export async function runQuoteMeeting(args = {}) {
       message: message || undefined,
       depositAmount: args.depositAmount,
       propertyId: args.propertyId,
+      requestId: decision.requestId || args.requestId,
       lineItems,
     });
     decision.quoteAction = 'create_quote';

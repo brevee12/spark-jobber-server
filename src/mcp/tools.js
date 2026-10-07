@@ -139,6 +139,7 @@ async function runJobberAction(action = {}) {
         message: action.message,
         depositAmount: action.depositAmount,
         propertyId: action.propertyId,
+        requestId: action.requestId,
         lineItems: action.lineItems,
       });
     }
@@ -357,6 +358,7 @@ export const toolDefinitions = [
               message: { type: 'string' },
               depositAmount: { type: 'number' },
               propertyId: { type: 'string' },
+              requestId: { type: 'string' },
               lineItems: { type: 'array' },
               replaceLineItems: { type: 'boolean' },
               amount: { type: 'number' },
@@ -393,10 +395,14 @@ export const toolDefinitions = [
         },
         clientId: { type: 'string', description: 'Force use this client id' },
         quoteId: { type: 'string', description: 'Force update this quote id' },
-        requestId: { type: 'string' },
+        requestId: {
+          type: 'string',
+          description:
+            'Jobber request id (EncodedId or numeric, e.g. 34791561) to convert into the quote',
+        },
         clientName: {
           type: 'string',
-          description: 'Full name from transcript (e.g. Tim Smith)',
+          description: 'Full name from transcript (e.g. Tim Urbanski)',
         },
         firstName: { type: 'string' },
         lastName: { type: 'string' },

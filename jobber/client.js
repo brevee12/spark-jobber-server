@@ -245,7 +245,44 @@ const CREATE_QUOTE = `
           id
           name
         }
+        property {
+          id
+        }
         createdAt
+        jobberWebUri
+      }
+      userErrors {
+        message
+        path
+      }
+    }
+  }
+`;
+
+/** Some Jobber versions accept quoteCreate(input: ...) instead of attributes */
+const CREATE_QUOTE_INPUT = `
+  mutation CreateQuoteInput($input: QuoteCreateInput!) {
+    quoteCreate(input: $input) {
+      quote {
+        id
+        quoteNumber
+        quoteStatus
+        title
+        message
+        amounts {
+          subtotal
+          total
+          depositAmount
+        }
+        client {
+          id
+          name
+        }
+        property {
+          id
+        }
+        createdAt
+        jobberWebUri
       }
       userErrors {
         message
@@ -329,36 +366,34 @@ export async function createClient({
 }
 
 /**
- * Create a Jobber quote for a client; optionally add line items.
+ * Jobber UI ids are numeric; GraphQL needs base64 EncodedId (gid://Jobber/Type/n).
  */
-export async function createQuote({
-  clientId,
-  title,
-  message,
-  depositAmount,
-  propertyId,
-  lineItems = [],
-} = {}) {
-  if (!clientId) throw new Error('clientId is required');
-
-  const input = { clientId: String(clientId) };
-  if (title) input.title = title;
-  if (message) input.message = message;
-  if (depositAmount != null) input.depositAmount = Number(depositAmount);
-  if (propertyId) input.propertyId = String(propertyId);
-
-  const data = await jobberGraphql(CREATE_QUOTE, { attributes: input });
-  const result = data?.quoteCreate;
-
-  if (result?.userErrors?.length) {
-    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+export function toJobberEncodedId(type, id) {
+  if (id == null || id === '') return null;
+  const s = String(id).trim();
+  if (!s) return null;
+  // Already an EncodedId
+  if (s.startsWith('Z2lkOi8v') || s.startsWith('gid://')) {
+    if (s.startsWith('gid://')) {
+      return Buffer.from(s, 'utf8').toString('base64');
+    }
+    return s;
   }
+  if (/^\d+$/.test(s)) {
+    if (!type) {
+      throw new Error(
+        `Numeric Jobber id ${s} needs a type (Client, Quote, Property, Request, …)`
+      );
+    }
+    return Buffer.from(`gid://Jobber/${type}/${s}`, 'utf8').toString('base64');
+  }
+  return s;
+}
 
-  const quote = result.quote;
-  let createdLineItems = [];
-
-  if (Array.isArray(lineItems) && lineItems.length > 0) {
-    const normalized = lineItems.map((item) => {
+function normalizeQuoteLineItems(lineItems = []) {
+  return (Array.isArray(lineItems) ? lineItems : [])
+    .filter(Boolean)
+    .map((item) => {
       const row = {
         name: item.name || item.description || 'Line item',
         quantity: item.quantity != null ? Number(item.quantity) : 1,
@@ -368,27 +403,124 @@ export async function createQuote({
       if (typeof item.taxable === 'boolean') row.taxable = item.taxable;
       return row;
     });
+}
 
+/**
+ * Create a Jobber quote for a client; optionally add line items.
+ * Jobber rejects QuoteCreateAttributes when propertyId/lineItems are explicit null —
+ * only send defined keys. Prefer embedding lineItems on create; fall back to
+ * quoteCreateLineItems afterward.
+ */
+export async function createQuote({
+  clientId,
+  title,
+  message,
+  depositAmount,
+  propertyId,
+  requestId,
+  lineItems = [],
+} = {}) {
+  const encodedClientId = toJobberEncodedId('Client', clientId);
+  if (!encodedClientId) throw new Error('clientId is required');
+
+  const normalizedLines = normalizeQuoteLineItems(lineItems);
+
+  const baseAttributes = { clientId: encodedClientId };
+  if (title) baseAttributes.title = String(title);
+  if (message) baseAttributes.message = String(message);
+  if (depositAmount != null && depositAmount !== '') {
+    baseAttributes.depositAmount = Number(depositAmount);
+  }
+
+  const encodedPropertyId = toJobberEncodedId('Property', propertyId);
+  if (encodedPropertyId) baseAttributes.propertyId = encodedPropertyId;
+
+  const encodedRequestId = toJobberEncodedId('Request', requestId);
+  if (encodedRequestId) baseAttributes.requestId = encodedRequestId;
+
+  async function attemptCreate(attributes, { useInputArg = false } = {}) {
+    const data = useInputArg
+      ? await jobberGraphql(CREATE_QUOTE_INPUT, { input: attributes })
+      : await jobberGraphql(CREATE_QUOTE, { attributes });
+    const result = data?.quoteCreate;
+    if (result?.userErrors?.length) {
+      throw new Error(result.userErrors.map((e) => e.message).join('; '));
+    }
+    if (!result?.quote?.id) throw new Error('quoteCreate returned no quote');
+    return result.quote;
+  }
+
+  let quote = null;
+  let embeddedLines = false;
+  const errors = [];
+
+  const attributeVariants = [];
+  if (normalizedLines.length) {
+    attributeVariants.push({
+      label: 'attributes+lines-array',
+      attrs: { ...baseAttributes, lineItems: normalizedLines },
+    });
+    attributeVariants.push({
+      label: 'attributes+lines-wrapped',
+      attrs: { ...baseAttributes, lineItems: { lineItems: normalizedLines } },
+    });
+  }
+  attributeVariants.push({ label: 'attributes-bare', attrs: { ...baseAttributes } });
+
+  // Also try input: arg form used by some schema versions
+  for (const variant of attributeVariants) {
+    if (quote) break;
+    try {
+      quote = await attemptCreate(variant.attrs, { useInputArg: false });
+      embeddedLines = Boolean(variant.attrs.lineItems);
+    } catch (err) {
+      errors.push(`${variant.label}: ${err.message}`);
+    }
+  }
+  if (!quote) {
+    for (const variant of attributeVariants) {
+      if (quote) break;
+      try {
+        quote = await attemptCreate(variant.attrs, { useInputArg: true });
+        embeddedLines = Boolean(variant.attrs.lineItems);
+      } catch (err) {
+        errors.push(`input:${variant.label}: ${err.message}`);
+      }
+    }
+  }
+
+  if (!quote) {
+    throw new Error(`quoteCreate failed: ${errors.join(' | ')}`);
+  }
+
+  let createdLineItems = [];
+  if (normalizedLines.length && !embeddedLines) {
     const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
       quoteId: quote.id,
-      lineItems: { lineItems: normalized },
+      lineItems: { lineItems: normalizedLines },
     });
     const lineResult = lineData?.quoteCreateLineItems;
-
     if (lineResult?.userErrors?.length) {
       throw new Error(
         `Quote created (${quote.id}) but line items failed: ` +
           lineResult.userErrors.map((e) => e.message).join('; ')
       );
     }
-
-    createdLineItems = lineResult?.lineItems || [];
+    createdLineItems = lineResult?.lineItems || normalizedLines;
+  } else if (embeddedLines) {
+    createdLineItems = normalizedLines;
   }
 
-  return {
-    ...quote,
-    lineItems: createdLineItems,
-  };
+  try {
+    const fresh = await getQuote(quote.id);
+    return {
+      ...quote,
+      ...fresh,
+      lineItems: fresh.lineItems?.length ? fresh.lineItems : createdLineItems,
+    };
+  } catch {
+    return { ...quote, lineItems: createdLineItems };
+  }
 }
 
 const DELETE_EXPENSE = `
