@@ -85,6 +85,13 @@ function assertEq(actual, expected, label) {
     'Income / Undeposited Funds (review)',
     'jobber payout must not be Software'
   );
+
+  const payroll = stageBankTransaction({
+    accountName: 'EZ BUS',
+    amount: '-1685.28',
+    description: 'INTUIT 05553090 PAYROLL',
+  });
+  assertEq(payroll.suggestedCategory, 'Payroll / Tax', 'payroll not Software');
 }
 
 // Report groups by account and exposes policy guardrails.

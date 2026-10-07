@@ -1,9 +1,12 @@
 /**
- * Match SimpleFIN rows against already-posted QBO activity so briefs only
- * show true outstanding (not every historical bank download).
+ * Verify SimpleFIN rows against posted QBO activity.
  *
- * "Seen" (SIMPLEFIN_PROCESSED_IDS) is email/approve dedupe.
- * "Booked in QBO" means a Purchase / Deposit / Transfer already exists.
+ * QBO's Banking "For Review" queue is NOT exposed by the API. The reliable
+ * approach: SimpleFIN downloads − already-posted QBO txs = still needs
+ * categorizing (either sitting in For Review, or not yet accepted).
+ *
+ * Match key: amount + TxnDate (±1 day). Description is a tie-breaker only.
+ * Entities: Purchase, Deposit, Transfer, JournalEntry, BillPayment, Payment.
  */
 
 import { qboQuery } from './qbo.js';
@@ -20,12 +23,12 @@ function normalizeDesc(s = '') {
     .replace(/[^A-Z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ')
-    .slice(0, 48);
+    .slice(0, 64);
 }
 
 function descOverlap(a, b) {
   if (!a || !b) return 0;
-  if (a.includes(b) || b.includes(a)) return 2;
+  if (a.includes(b) || b.includes(a)) return 3;
   const as = new Set(a.split(' ').filter((w) => w.length > 2));
   const bs = b.split(' ').filter((w) => w.length > 2);
   let hits = 0;
@@ -33,39 +36,57 @@ function descOverlap(a, b) {
   return hits;
 }
 
-async function queryAll(entity, startDate, endDate) {
+function shiftDate(iso, days) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+async function queryAll(entity, startDate, endDate, { slimSql } = {}) {
   const start = String(startDate).slice(0, 10);
   const end = endDate ? String(endDate).slice(0, 10) : null;
   const rows = [];
   let pos = 1;
   const page = 1000;
 
-  for (let guard = 0; guard < 10; guard += 1) {
+  for (let guard = 0; guard < 15; guard += 1) {
+    const where =
+      `WHERE TxnDate >= '${start}'` +
+      (end ? ` AND TxnDate <= '${end}'` : '');
     let sql =
-      `SELECT * FROM ${entity} WHERE TxnDate >= '${start}' ` +
-      (end ? `AND TxnDate <= '${end}' ` : '') +
-      `ORDERBY TxnDate MAXRESULTS ${page}`;
-    if (pos > 1) {
-      sql =
-        `SELECT * FROM ${entity} WHERE TxnDate >= '${start}' ` +
-        (end ? `AND TxnDate <= '${end}' ` : '') +
-        `STARTPOSITION ${pos} MAXRESULTS ${page}`;
+      slimSql ||
+      `SELECT * FROM ${entity} ${where} STARTPOSITION ${pos} MAXRESULTS ${page}`;
+    if (!slimSql && pos === 1) {
+      sql = `SELECT * FROM ${entity} ${where} MAXRESULTS ${page}`;
+    } else if (!slimSql) {
+      sql = `SELECT * FROM ${entity} ${where} STARTPOSITION ${pos} MAXRESULTS ${page}`;
+    } else if (pos > 1) {
+      sql = `${slimSql.replace(/MAXRESULTS \d+/i, `STARTPOSITION ${pos} MAXRESULTS ${page}`)}`;
+      if (!/STARTPOSITION/i.test(sql)) {
+        sql = slimSql.replace(
+          /MAXRESULTS \d+/i,
+          `STARTPOSITION ${pos} MAXRESULTS ${page}`
+        );
+      }
     }
+
     let qr;
     try {
       qr = await qboQuery(sql);
     } catch (err) {
-      // Some companies disallow SELECT * on Transfer — retry slim columns.
-      if (/Transfer/i.test(entity)) {
-        const slim =
-          `SELECT Id, TxnDate, Amount, PrivateNote FROM Transfer WHERE TxnDate >= '${start}' ` +
-          (end ? `AND TxnDate <= '${end}' ` : '') +
-          `MAXRESULTS ${page}`;
-        qr = await qboQuery(slim);
-      } else {
-        throw err;
-      }
+      if (slimSql || guard > 0) throw err;
+      // Fall back to Id/TxnDate/amount fields only.
+      const fallback =
+        entity === 'JournalEntry'
+          ? `SELECT Id, TxnDate, PrivateNote, Line FROM JournalEntry ${where} MAXRESULTS ${page}`
+          : entity === 'Transfer'
+            ? `SELECT Id, TxnDate, Amount, PrivateNote FROM Transfer ${where} MAXRESULTS ${page}`
+            : null;
+      if (!fallback) throw err;
+      qr = await qboQuery(fallback);
     }
+
     const batch = qr[entity] || [];
     rows.push(...batch);
     if (batch.length < page) break;
@@ -83,26 +104,45 @@ function pushCandidate(bag, { date, amount, description, id, type }) {
     id: String(id),
     type,
     description: normalizeDesc(description),
+    date,
+    amount: mk,
   });
 }
 
+function pushEntitySafe(stats, key, count) {
+  stats[key] = (stats[key] || 0) + count;
+}
+
 /**
- * Load posted QBO bank-ish activity into a match bag.
+ * Load posted QBO activity into a date|amount match bag.
  */
 export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
   if (!startDate) throw new Error('loadQboPostedMatchBag requires startDate');
 
-  const bag = new Map();
-  const stats = { purchase: 0, deposit: 0, transfer: 0 };
+  // Widen QBO pull by 1 day on each side for bank vs book date skew.
+  const qboStart = shiftDate(String(startDate).slice(0, 10), -1) || startDate;
+  const qboEnd = endDate
+    ? shiftDate(String(endDate).slice(0, 10), 1) || endDate
+    : endDate;
 
-  const purchases = await queryAll('Purchase', startDate, endDate);
-  stats.purchase = purchases.length;
-  for (const p of purchases) {
+  const bag = new Map();
+  const stats = {};
+  const errors = [];
+
+  async function load(entity, mapFn) {
+    try {
+      const rows = await queryAll(entity, qboStart, qboEnd);
+      pushEntitySafe(stats, entity, rows.length);
+      for (const row of rows) mapFn(row);
+    } catch (err) {
+      pushEntitySafe(stats, entity, 0);
+      errors.push({ entity, error: err.message });
+    }
+  }
+
+  await load('Purchase', (p) => {
     const entity =
-      p.EntityRef?.name ||
-      p.AccountRef?.name ||
-      p.PaymentType ||
-      '';
+      p.EntityRef?.name || p.AccountRef?.name || p.PaymentType || '';
     const lineDesc = (p.Line || [])
       .map((l) => l.Description)
       .filter(Boolean)
@@ -114,11 +154,9 @@ export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
       id: p.Id,
       type: 'Purchase',
     });
-  }
+  });
 
-  const deposits = await queryAll('Deposit', startDate, endDate);
-  stats.deposit = deposits.length;
-  for (const d of deposits) {
+  await load('Deposit', (d) => {
     const lineDesc = (d.Line || [])
       .map((l) => l.Description || l.DepositLineDetail?.Entity?.name)
       .filter(Boolean)
@@ -130,82 +168,161 @@ export async function loadQboPostedMatchBag({ startDate, endDate } = {}) {
       id: d.Id,
       type: 'Deposit',
     });
-  }
+  });
 
-  try {
-    const transfers = await queryAll('Transfer', startDate, endDate);
-    stats.transfer = transfers.length;
-    for (const t of transfers) {
+  await load('Transfer', (t) => {
+    pushCandidate(bag, {
+      date: t.TxnDate,
+      amount: t.Amount,
+      description: t.PrivateNote || 'Transfer',
+      id: t.Id,
+      type: 'Transfer',
+    });
+  });
+
+  await load('BillPayment', (bp) => {
+    pushCandidate(bag, {
+      date: bp.TxnDate,
+      amount: bp.TotalAmt,
+      description: `${bp.VendorRef?.name || ''} ${bp.PrivateNote || ''} BillPayment`,
+      id: bp.Id,
+      type: 'BillPayment',
+    });
+  });
+
+  await load('Payment', (pay) => {
+    pushCandidate(bag, {
+      date: pay.TxnDate,
+      amount: pay.TotalAmt,
+      description: `${pay.CustomerRef?.name || ''} ${pay.PrivateNote || ''} Payment`,
+      id: pay.Id,
+      type: 'Payment',
+    });
+  });
+
+  // Payroll / LOC / misc often land as journal entries — index every line amount.
+  await load('JournalEntry', (je) => {
+    const note = je.PrivateNote || '';
+    const lines = je.Line || [];
+    if (!lines.length) {
       pushCandidate(bag, {
-        date: t.TxnDate,
-        amount: t.Amount,
-        description: t.PrivateNote || 'Transfer',
-        id: t.Id,
-        type: 'Transfer',
+        date: je.TxnDate,
+        amount: je.TotalAmt || je.HomeTotalAmt,
+        description: note || 'JournalEntry',
+        id: je.Id,
+        type: 'JournalEntry',
+      });
+      return;
+    }
+    const seen = new Set();
+    for (const line of lines) {
+      const amt = line.Amount;
+      const mk = moneyKey(amt);
+      if (!mk || seen.has(mk)) continue;
+      seen.add(mk);
+      pushCandidate(bag, {
+        date: je.TxnDate,
+        amount: amt,
+        description: `${note} ${line.Description || ''} JournalEntry`,
+        id: `${je.Id}:${mk}`,
+        type: 'JournalEntry',
       });
     }
-  } catch (err) {
-    stats.transferError = err.message;
+  });
+
+  return { bag, stats, errors, qboStart, qboEnd };
+}
+
+function findBestHit(local, date, mk, desc) {
+  if (!date || !mk) return null;
+  const dayOffsets = [0, -1, 1];
+  let best = null;
+
+  for (const offset of dayOffsets) {
+    const day = offset === 0 ? date : shiftDate(date, offset);
+    if (!day) continue;
+    const key = `${day}|${mk}`;
+    const candidates = local.get(key);
+    if (!candidates?.length) continue;
+
+    let bestIdx = 0;
+    let bestScore = -1;
+    for (let i = 0; i < candidates.length; i += 1) {
+      // Prefer exact date, then description overlap.
+      const score =
+        (offset === 0 ? 10 : 5) + descOverlap(desc, candidates[i].description);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    const candidate = candidates[bestIdx];
+    const ranked = {
+      candidate,
+      key,
+      bestIdx,
+      score: bestScore,
+      dateOffset: offset,
+    };
+    if (!best || ranked.score > best.score) best = ranked;
   }
 
-  return { bag, stats };
+  if (!best) return null;
+  const list = local.get(best.key);
+  const [hit] = list.splice(best.bestIdx, 1);
+  return { ...hit, dateOffset: best.dateOffset, score: best.score };
 }
 
 /**
  * Annotate SimpleFIN txs with qboMatch; optionally filter to unmatched only.
- * @returns {{ transactions: object[], summary: object }}
  */
-export function matchSimpleFinToQbo(transactions = [], bag, { onlyOutstanding = true } = {}) {
+export function matchSimpleFinToQbo(
+  transactions = [],
+  bag,
+  { onlyOutstanding = true } = {}
+) {
   const matched = [];
   const outstanding = [];
 
-  // Work on a mutable copy of candidate lists.
   const local = new Map();
   for (const [k, arr] of bag.entries()) {
     local.set(k, [...arr]);
   }
 
   for (const tx of transactions) {
-    const date = tx.date;
     const mk = moneyKey(tx.amount);
-    const key = date && mk ? `${date}|${mk}` : null;
     const desc = normalizeDesc(tx.description);
-    let hit = null;
-
-    if (key && local.has(key) && local.get(key).length) {
-      const candidates = local.get(key);
-      let bestIdx = 0;
-      let bestScore = -1;
-      for (let i = 0; i < candidates.length; i += 1) {
-        const score = descOverlap(desc, candidates[i].description);
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx = i;
-        }
-      }
-      // Accept date+amount match even with weak description (common for feed clears).
-      hit = candidates.splice(bestIdx, 1)[0];
-    }
+    const hit = findBestHit(local, tx.date, mk, desc);
 
     if (hit) {
       matched.push({
         ...tx,
         alreadyInQbo: true,
-        qboMatch: { id: hit.id, type: hit.type },
+        qboMatch: {
+          id: hit.id,
+          type: hit.type,
+          dateOffset: hit.dateOffset,
+          score: hit.score,
+        },
       });
     } else {
       outstanding.push({
         ...tx,
         alreadyInQbo: false,
         qboMatch: null,
+        verifyNote: 'No Purchase/Deposit/Transfer/JE/BillPayment/Payment with same amount within ±1 day',
       });
     }
   }
 
-  const transactionsOut = onlyOutstanding ? outstanding : [...outstanding, ...matched];
+  const transactionsOut = onlyOutstanding
+    ? outstanding
+    : [...outstanding, ...matched];
 
   return {
     transactions: transactionsOut,
+    matched,
+    outstanding,
     summary: {
       simplefinTotal: transactions.length,
       alreadyInQbo: matched.length,
@@ -225,12 +342,14 @@ export async function filterOutstandingAgainstQbo(
   if (!transactions.length) {
     return {
       transactions: [],
+      matched: [],
+      outstanding: [],
       summary: {
         simplefinTotal: 0,
         alreadyInQbo: 0,
         outstanding: 0,
         onlyOutstanding,
-        qbo: { purchase: 0, deposit: 0, transfer: 0 },
+        qbo: {},
       },
     };
   }
@@ -238,13 +357,18 @@ export async function filterOutstandingAgainstQbo(
   const dates = transactions.map((t) => t.date).filter(Boolean).sort();
   const effectiveStart = startDate || dates[0];
   const effectiveEnd = endDate || dates[dates.length - 1];
-  const { bag, stats } = await loadQboPostedMatchBag({
+  const { bag, stats, errors, qboStart, qboEnd } = await loadQboPostedMatchBag({
     startDate: effectiveStart,
     endDate: effectiveEnd,
   });
   const matched = matchSimpleFinToQbo(transactions, bag, { onlyOutstanding });
   return {
     ...matched,
-    summary: { ...matched.summary, qbo: stats },
+    summary: {
+      ...matched.summary,
+      qbo: stats,
+      qboErrors: errors,
+      qboWindow: { start: qboStart, end: qboEnd },
+    },
   };
 }

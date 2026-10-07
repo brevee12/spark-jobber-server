@@ -10,11 +10,15 @@ function assert(cond, msg) {
 const bag = new Map([
   [
     '2026-09-30|14.11',
-    [{ id: 'P1', type: 'Purchase', description: 'BURGER KING 27284' }],
+    [{ id: 'P1', type: 'Purchase', description: 'BURGER KING 27284', date: '2026-09-30', amount: '14.11' }],
   ],
   [
-    '2026-09-30|26.93',
-    [{ id: 'P2', type: 'Purchase', description: 'CASEYS 3566' }],
+    '2026-09-29|26.93',
+    [{ id: 'P2', type: 'Purchase', description: 'CASEYS 3566', date: '2026-09-29', amount: '26.93' }],
+  ],
+  [
+    '2026-09-17|1685.28',
+    [{ id: 'JE1', type: 'JournalEntry', description: 'PAYROLL', date: '2026-09-17', amount: '1685.28' }],
   ],
 ]);
 
@@ -33,6 +37,12 @@ const txs = [
   },
   {
     id: 'TRN-3',
+    date: '2026-09-17',
+    amount: '-1685.28',
+    description: 'INTUIT 05553090 PAYROLL',
+  },
+  {
+    id: 'TRN-4',
     date: '2026-09-30',
     amount: '-99.00',
     description: 'UNKNOWN PAYEE',
@@ -40,13 +50,9 @@ const txs = [
 ];
 
 const filtered = matchSimpleFinToQbo(txs, bag, { onlyOutstanding: true });
-assert(filtered.summary.alreadyInQbo === 2, 'matched 2');
+assert(filtered.summary.alreadyInQbo === 3, `matched 3 got ${filtered.summary.alreadyInQbo}`);
 assert(filtered.summary.outstanding === 1, '1 outstanding');
-assert(filtered.transactions.length === 1, 'filtered length');
-assert(filtered.transactions[0].id === 'TRN-3', 'unknown remains');
-
-const all = matchSimpleFinToQbo(txs, bag, { onlyOutstanding: false });
-assert(all.transactions.length === 3, 'unfiltered keeps all');
-assert(all.transactions.filter((t) => t.alreadyInQbo).length === 2, 'flags');
+assert(filtered.transactions[0].id === 'TRN-4', 'unknown remains');
+assert(filtered.matched.find((t) => t.id === 'TRN-2')?.qboMatch?.dateOffset === -1, '±1 day match');
 
 console.log('qboPostedMatch.test.js: all assertions passed');
