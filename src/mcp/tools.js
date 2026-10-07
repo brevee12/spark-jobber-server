@@ -9,12 +9,17 @@ import {
   getJob,
   searchInvoices,
   getQuote,
+  searchClients,
+  searchQuotes,
+  searchRequests,
+  editQuote,
 } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
   markTransactionsProcessed,
 } from '../services/simplefin.js';
 import { buildStagingReport } from '../services/bankStaging.js';
+import { runQuoteMeeting } from './quoteMeeting.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -42,11 +47,15 @@ function fail(err) {
 const JOBBER_OPS = [
   'search_jobs',
   'search_invoices',
+  'search_clients',
+  'search_quotes',
+  'search_requests',
   'get_job',
   'get_invoice',
   'get_quote',
   'create_client',
   'create_quote',
+  'update_quote',
   'create_expense',
   'delete_expense',
   'schedule_visit',
@@ -74,6 +83,27 @@ async function runJobberAction(action = {}) {
         status: action.status,
         invoiceNumber: action.invoiceNumber,
         query: action.query,
+        limit: action.limit,
+      });
+    }
+    case 'search_clients': {
+      return searchClients({
+        query: action.query || action.clientName || action.name,
+        limit: action.limit,
+      });
+    }
+    case 'search_quotes': {
+      return searchQuotes({
+        query: action.query || action.clientName,
+        clientId: action.clientId,
+        status: action.status,
+        limit: action.limit,
+      });
+    }
+    case 'search_requests': {
+      return searchRequests({
+        query: action.query || action.clientName,
+        status: action.status,
         limit: action.limit,
       });
     }
@@ -110,6 +140,16 @@ async function runJobberAction(action = {}) {
         depositAmount: action.depositAmount,
         propertyId: action.propertyId,
         lineItems: action.lineItems,
+      });
+    }
+    case 'update_quote': {
+      return editQuote({
+        quoteId: action.quoteId || action.id,
+        title: action.title,
+        message: action.message,
+        depositAmount: action.depositAmount,
+        lineItems: action.lineItems,
+        replaceLineItems: Boolean(action.replaceLineItems),
       });
     }
     case 'create_expense': {
@@ -277,7 +317,7 @@ export const toolDefinitions = [
   {
     name: 'jobber_batch',
     description:
-      'PREFERRED Jobber tool. Run multiple Jobber reads/writes in ONE call (one Allow): search jobs, search invoices, get job/invoice/quote, create client/quote/expense, delete expense, schedule visit. Pass actions: [{ op, ...fields }]. Does NOT write to QuickBooks.',
+      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create/delete expense, schedule_visit. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Does NOT write to QuickBooks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -296,6 +336,7 @@ export const toolDefinitions = [
               query: { type: 'string' },
               limit: { type: 'number' },
               clientName: { type: 'string' },
+              name: { type: 'string' },
               status: { type: 'string' },
               invoiceNumber: { type: 'string' },
               jobId: { type: 'string' },
@@ -317,6 +358,7 @@ export const toolDefinitions = [
               depositAmount: { type: 'number' },
               propertyId: { type: 'string' },
               lineItems: { type: 'array' },
+              replaceLineItems: { type: 'boolean' },
               amount: { type: 'number' },
               description: { type: 'string' },
               date: { type: 'string' },
@@ -335,6 +377,60 @@ export const toolDefinitions = [
         },
       },
       required: ['actions'],
+    },
+  },
+  {
+    name: 'quote_meeting',
+    description:
+      'PREFERRED after summarizing a client quote-meeting voice recording. ONE Allow: search clients/quotes/requests, decide whether to create or reuse a client and whether to update an existing draft quote or create a new one, then optionally write the Jobber draft (apply:true) so it is ready to review/send. Pass clientName/street/phone/email/title/message/lineItems from the transcript. Dry-run with apply:false first if unsure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apply: {
+          type: 'boolean',
+          description:
+            'false (default) = plan only; true = create/update client+quote in Jobber',
+        },
+        clientId: { type: 'string', description: 'Force use this client id' },
+        quoteId: { type: 'string', description: 'Force update this quote id' },
+        requestId: { type: 'string' },
+        clientName: {
+          type: 'string',
+          description: 'Full name from transcript (e.g. Tim Smith)',
+        },
+        firstName: { type: 'string' },
+        lastName: { type: 'string' },
+        companyName: { type: 'string' },
+        isCompany: { type: 'boolean' },
+        isLead: { type: 'boolean' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        street: {
+          type: 'string',
+          description: 'Job site street (e.g. Fountain View Drive)',
+        },
+        billingAddress: { type: 'object' },
+        propertyAddress: { type: 'object' },
+        propertyId: { type: 'string' },
+        title: { type: 'string' },
+        message: { type: 'string' },
+        meetingNotes: {
+          type: 'string',
+          description: 'Short Gemini summary of the recording',
+        },
+        depositAmount: { type: 'number' },
+        lineItems: {
+          type: 'array',
+          description:
+            'Quote lines: [{ name, description, quantity, unitPrice, taxable }]',
+          items: { type: 'object' },
+        },
+        replaceLineItems: {
+          type: 'boolean',
+          description:
+            'When updating a quote, replace existing lines (default true if lineItems provided)',
+        },
+      },
     },
   },
   {
@@ -511,6 +607,11 @@ export async function callTool(name, args = {}) {
       case 'jobber_batch': {
         const batch = await runJobberBatch(args.actions);
         return ok(batch);
+      }
+
+      case 'quote_meeting': {
+        const meeting = await runQuoteMeeting(args);
+        return ok(meeting);
       }
 
       case 'bookkeeping_review': {
