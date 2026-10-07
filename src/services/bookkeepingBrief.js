@@ -122,6 +122,13 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   }
   textParts.push('');
   textParts.push('§2 Bank staging — reply in Cursor with approve N / skip N');
+  const qboMatch = review?.bankFeed?.qboMatch;
+  if (qboMatch && qboMatch.simplefinTotal != null) {
+    textParts.push(
+      `  Filter: ${qboMatch.outstanding} outstanding of ${qboMatch.simplefinTotal} SimpleFIN rows ` +
+        `(${qboMatch.alreadyInQbo} already booked in QBO).`
+    );
+  }
   if (!items.length) {
     textParts.push('  No new bank transactions to stage.');
   } else {

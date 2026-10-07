@@ -133,6 +133,7 @@ export async function runBookkeepingNotify(args = {}) {
   }
 
   // Stage-only defaults: read bank + cash; never markSeen; no QBO writes.
+  // excludeBookedInQbo defaults true inside runBookkeepingReview.
   const review = await runReview({
     includeBankFeed: true,
     includeCashBalances: true,
@@ -140,6 +141,7 @@ export async function runBookkeepingNotify(args = {}) {
     includeAccounts: false,
     includeProfitAndLoss: false,
     includeProcessed: false,
+    excludeBookedInQbo: true,
     ...reviewArgs,
     markSeen: false,
   });
