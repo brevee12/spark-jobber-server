@@ -111,7 +111,98 @@ export function defaultBankStartDate(daysBack = 45) {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchAccountsRaw({ startDate, accountId } = {}) {
+// SimpleFIN data refreshes once a day and the bridge warns above 24 req/day,
+// so every caller shares one wide pull per TTL and filters it locally.
+const CACHE_FILE = '.simplefin-cache.json';
+const CACHE_WINDOW_DAYS = 90;
+const cacheTtlMs = () =>
+  Math.max(1, Number(process.env.SIMPLEFIN_CACHE_TTL_HOURS) || 4) * 3600 * 1000;
+const maxDailyRequests = () =>
+  Math.max(1, Number(process.env.SIMPLEFIN_MAX_DAILY_REQUESTS) || 12);
+
+let memCache = null;
+
+function loadCache() {
+  if (!memCache) memCache = readJson(CACHE_FILE, null);
+  return memCache;
+}
+
+function saveCache(cache) {
+  memCache = cache;
+  writeJson(CACHE_FILE, cache);
+}
+
+function todayUtc() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function getSimpleFinCacheInfo() {
+  const c = loadCache();
+  return {
+    fetchedAt: c?.fetchedAt || null,
+    windowStart: c?.windowStart || null,
+    requestsToday: c?.counter?.day === todayUtc() ? c.counter.n : 0,
+    maxDailyRequests: maxDailyRequests(),
+    ttlHours: cacheTtlMs() / 3600000,
+  };
+}
+
+function filterCached(data, { startDate, accountId } = {}) {
+  const start = toUnixStart(startDate);
+  return {
+    ...data,
+    accounts: (data.accounts || [])
+      .filter((a) => !accountId || String(a.id) === String(accountId))
+      .map((a) => ({
+        ...a,
+        transactions: (a.transactions || []).filter(
+          (tx) => start == null || !Number(tx.posted) || Number(tx.posted) >= start
+        ),
+      })),
+  };
+}
+
+/**
+ * Cached SimpleFIN /accounts. Network only when the cache is older than the
+ * TTL or doesn't reach back to startDate, and never past the daily cap
+ * (stale data is served instead).
+ */
+async function fetchAccountsRaw({ startDate, accountId, forceRefresh = false } = {}) {
+  const cache = loadCache();
+  const wantStart = toUnixStart(startDate);
+  const windowStart = defaultBankStartDate(CACHE_WINDOW_DAYS);
+  const coversStart =
+    cache && (wantStart == null || toUnixStart(cache.windowStart) <= wantStart);
+  const fresh = cache && Date.now() - Date.parse(cache.fetchedAt) < cacheTtlMs();
+
+  if (cache && coversStart && fresh && !forceRefresh) {
+    return filterCached(cache.data, { startDate, accountId });
+  }
+
+  const counter =
+    cache?.counter?.day === todayUtc() ? { ...cache.counter } : { day: todayUtc(), n: 0 };
+  if (counter.n >= maxDailyRequests()) {
+    if (cache) {
+      console.warn(`SimpleFIN daily cap (${maxDailyRequests()}) reached — serving cache from ${cache.fetchedAt}`);
+      return filterCached(cache.data, { startDate, accountId });
+    }
+    throw new Error(`SimpleFIN daily request cap (${maxDailyRequests()}) reached`);
+  }
+
+  const pullStart =
+    wantStart != null && wantStart < toUnixStart(windowStart) ? startDate : windowStart;
+  counter.n += 1;
+  const data = await fetchAccountsNetwork({ startDate: pullStart });
+  saveCache({
+    fetchedAt: new Date().toISOString(),
+    windowStart: String(pullStart).slice(0, 10),
+    counter,
+    data,
+  });
+  return filterCached(data, { startDate, accountId });
+}
+
+async function fetchAccountsNetwork({ startDate, accountId } = {}) {
   const accessUrl = await ensureAccessUrl();
   const { base, username, password } = parseAccessUrl(accessUrl);
 

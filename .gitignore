@@ -5,3 +5,4 @@ node_modules/
 .simplefin-access.json
 .simplefin-processed.json
 .simplefin-setup.tmp
+.simplefin-cache.json
