@@ -293,15 +293,22 @@ const CREATE_QUOTE_INPUT = `
 `;
 
 const CREATE_QUOTE_LINE_ITEMS = `
-  mutation AddQuoteLineItems($quoteId: EncodedId!, $lineItems: QuoteCreateLineItemsAttributes!) {
+  mutation AddQuoteLineItems($quoteId: EncodedId!, $lineItems: [QuoteCreateLineItemAttributes!]!) {
     quoteCreateLineItems(quoteId: $quoteId, lineItems: $lineItems) {
-      lineItems {
+      quote {
         id
-        name
-        description
-        quantity
-        unitPrice
-        totalPrice
+        quoteNumber
+        lineItems(first: 50) {
+          nodes {
+            id
+            name
+            description
+            quantity
+            unitPrice
+            totalPrice
+            taxable
+          }
+        }
       }
       userErrors {
         message
@@ -505,7 +512,7 @@ export async function createQuote({
   if (normalizedLines.length && !embeddedLines) {
     const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
       quoteId: quote.id,
-      lineItems: { lineItems: normalizedLines },
+      lineItems: normalizedLines,
     });
     const lineResult = lineData?.quoteCreateLineItems;
     if (lineResult?.userErrors?.length) {
@@ -514,7 +521,8 @@ export async function createQuote({
           lineResult.userErrors.map((e) => e.message).join('; ')
       );
     }
-    createdLineItems = lineResult?.lineItems || normalizedLines;
+    createdLineItems =
+      lineResult?.quote?.lineItems?.nodes || normalizedLines;
   } else if (embeddedLines) {
     createdLineItems = normalizedLines;
   }
@@ -1168,8 +1176,7 @@ const EDIT_QUOTE = `
 const DELETE_QUOTE_LINE_ITEMS = `
   mutation DeleteQuoteLineItems($quoteId: EncodedId!, $lineItemIds: [EncodedId!]!) {
     quoteDeleteLineItems(quoteId: $quoteId, lineItemIds: $lineItemIds) {
-      deletedLineItemIds
-      lineItems {
+      quote {
         id
       }
       userErrors {
@@ -1256,20 +1263,11 @@ export async function editQuote({
     }
 
     if (lineItems.length) {
-      const normalized = lineItems.map((item) => {
-        const row = {
-          name: item.name || item.description || 'Line item',
-          quantity: item.quantity != null ? Number(item.quantity) : 1,
-          unitPrice: Number(item.unitPrice ?? item.price ?? 0),
-        };
-        if (item.description) row.description = item.description;
-        if (typeof item.taxable === 'boolean') row.taxable = item.taxable;
-        return row;
-      });
+      const normalized = normalizeQuoteLineItems(lineItems);
 
       const lineData = await jobberGraphql(CREATE_QUOTE_LINE_ITEMS, {
         quoteId: String(quoteId),
-        lineItems: { lineItems: normalized },
+        lineItems: normalized,
       });
       const lineResult = lineData?.quoteCreateLineItems;
       if (lineResult?.userErrors?.length) {
@@ -1278,7 +1276,7 @@ export async function editQuote({
             lineResult.userErrors.map((e) => e.message).join('; ')
         );
       }
-      createdLineItems = lineResult?.lineItems || [];
+      createdLineItems = lineResult?.quote?.lineItems?.nodes || normalized;
     }
   }
 
