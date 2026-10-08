@@ -32,6 +32,7 @@ import { runQuoteMeeting } from './quoteMeeting.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
+  postQboCreditCardCredit,
   postQboDeposit,
   postQboTransfer,
   deleteQboTransaction,
@@ -504,7 +505,7 @@ export const toolDefinitions = [
   {
     name: 'bookkeeping_review',
     description:
-      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated doNotPostViaApi — clear those in the QBO Banking feed only. Does NOT create/edit/delete anything in QuickBooks — use qbo_create_* / qbo_delete_transaction for writes (separate Allow).',
+      'PREFERRED read-only CFO snapshot for scheduled reports. ONE Allow fetches bank feed (SimpleFIN) with staging Notes & Treatment per transaction, QBO cash balances, optional accounts/P&L/Sherwin bills, and optional Jobber lookups via jobberActions. Credit-card refunds/credits are annotated qboWriteTool qbo_create_cc_credit (original expense account). Does NOT create/edit/delete anything in QuickBooks — use qbo_create_* / qbo_delete_transaction for writes (separate Allow).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -590,7 +591,7 @@ export const toolDefinitions = [
   {
     name: 'qbo_create_expense',
     description:
-      'WRITE to QuickBooks: create a Purchase (check/CC charge only — positive expense amounts). Never use for credit-card refunds/credits (positive amounts on a CC account); those must be cleared in the QBO Banking feed against the original expense account. Requires its own Allow — do not batch with Jobber.',
+      'WRITE to QuickBooks: create a Purchase (check/CC charge only — positive expense amounts). Never use for credit-card refunds/credits (positive amounts on a CC account) — use qbo_create_cc_credit. Requires its own Allow — do not batch with Jobber.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -615,9 +616,36 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'qbo_create_cc_credit',
+    description:
+      'WRITE to QuickBooks: create a Credit Card Credit (refund/return on a credit card) booked back to the original expense account. Refuses if the card already has a same-amount record within ±1 day (returns status skipped_duplicate). After posting, the Banking feed line should be MATCHED, not added. Requires its own Allow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        creditCardAccountId: {
+          type: 'string',
+          description: 'QBO Credit Card Account Id that received the refund',
+        },
+        categoryAccountId: {
+          type: 'string',
+          description: 'QBO expense Account Id of the original purchase (refund offsets it)',
+        },
+        amount: { type: 'number', description: 'Refund amount (positive)' },
+        txnDate: { type: 'string', description: 'YYYY-MM-DD (optional)' },
+        payeeName: { type: 'string', description: 'Vendor / payee name (optional)' },
+        memo: { type: 'string', description: 'Memo / private note' },
+        allowDuplicate: {
+          type: 'boolean',
+          description: 'Skip the ±1 day duplicate check (default false)',
+        },
+      },
+      required: ['creditCardAccountId', 'categoryAccountId', 'amount'],
+    },
+  },
+  {
     name: 'qbo_create_deposit',
     description:
-      'WRITE to QuickBooks: create a Bank Deposit into a checking/bank account (owner loans, non-invoice income). Never use for credit-card refunds — CC credits are not bank deposits; clear them in the QBO Banking feed. Requires its own Allow — do not batch with Jobber.',
+      'WRITE to QuickBooks: create a Bank Deposit into a checking/bank account (owner loans, non-invoice income). Never use for credit-card refunds — CC credits are not bank deposits; use qbo_create_cc_credit. Requires its own Allow — do not batch with Jobber.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -685,7 +713,7 @@ export const toolDefinitions = [
   {
     name: 'bookkeeping_mark_seen',
     description:
-      'After Brennan approves/skips numbered staging lines in Cursor chat: mark those SimpleFIN transaction ids as processed so the next morning brief does not re-list them. Does NOT write to QuickBooks. Use durable:true to persist ids across Render deploys. For feed-only CC lines, approve means clear in the QBO Banking feed — do not also call qbo_create_* (that would duplicate).',
+      'After Brennan approves/skips numbered staging lines in Cursor chat: mark those SimpleFIN transaction ids as processed so the next morning brief does not re-list them. Does NOT write to QuickBooks. Use durable:true to persist ids across Render deploys. For feed-only lines (doNotPostViaApi), approve means clear in the QBO Banking feed — do not also call qbo_create_* (that would duplicate).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -828,6 +856,19 @@ export async function callTool(name, args = {}) {
           paymentType: args.paymentType,
         });
         return ok(created);
+      }
+
+      case 'qbo_create_cc_credit': {
+        const credit = await postQboCreditCardCredit({
+          creditCardAccountId: args.creditCardAccountId,
+          categoryAccountId: args.categoryAccountId,
+          amount: args.amount,
+          txnDate: args.txnDate,
+          payeeName: args.payeeName,
+          memo: args.memo,
+          allowDuplicate: Boolean(args.allowDuplicate),
+        });
+        return ok(credit);
       }
 
       case 'qbo_create_deposit': {

@@ -58,7 +58,8 @@ You are the Veenstra Painting morning bookkeeping runner.
 5. When Brennan later replies with "approve 1,3" / "skip 2" in this chat:
    - Call bookkeeping_mark_seen with those transaction ids (durable:true) so they are not re-emailed.
    - Only propose QBO write tools (separate Allows) for lines that are NOT doNotPostViaApi / feed-only.
-   - Credit-card charges/refunds stay feed-only — approve means clear in the QBO Banking feed; never also qbo_create_* (duplicates).
+   - Credit-card charges stay feed-only — approve means clear in the QBO Banking feed; never also qbo_create_* (duplicates).
+   - Credit-card refunds: on approve, `qbo_create_cc_credit` (original expense account; refuses duplicates), then Match the feed line.
 ```
 
 ## Email shape

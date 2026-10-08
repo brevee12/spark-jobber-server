@@ -14,7 +14,7 @@ function assertEq(actual, expected, label) {
   }
 }
 
-// Fastool PayPal refund on Spark Cash — never post via API; category 110.
+// Fastool PayPal refund on Spark Cash — CC credit write only; category 110.
 {
   const tx = stageBankTransaction({
     id: '1',
@@ -23,12 +23,12 @@ function assertEq(actual, expected, label) {
     amount: '159.10',
     description: 'PAYPAL *FASTOOL INC FA',
   });
-  assertEq(tx.doNotPostViaApi, true, 'fastool refund doNotPostViaApi');
-  assertEq(tx.qboWriteTool, null, 'fastool refund qboWriteTool');
+  assertEq(tx.doNotPostViaApi, false, 'fastool refund doNotPostViaApi');
+  assertEq(tx.qboWriteTool, 'qbo_create_cc_credit', 'fastool refund qboWriteTool');
   assertEq(tx.suggestedCategory, '110 – Small Tools & Equipment', 'fastool category');
   assert(tx.accountKind === 'credit_card', 'fastool accountKind');
-  assert(/Banking feed/i.test(tx.treatment), 'fastool treatment mentions Banking feed');
-  assert(!/qbo_create_deposit/i.test(tx.treatment) || /Do NOT call qbo_create/i.test(tx.treatment), 'fastool warns against write tools');
+  assert(/qbo_create_cc_credit/.test(tx.treatment) && /MATCH/.test(tx.treatment), 'fastool treatment: credit write then match');
+  assert(/Never qbo_create_expense or qbo_create_deposit/.test(tx.treatment), 'fastool warns against expense/deposit');
 }
 
 // CC charge — prefer feed; expense tool only as ahead-of-feed option.
