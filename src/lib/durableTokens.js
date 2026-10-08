@@ -105,6 +105,46 @@ export async function persistEnvVars(vars, { onlyIfChanged = true } = {}) {
 }
 
 /**
+ * Current value of a Render env var (not this process's boot-time copy).
+ * Another instance may have rotated a refresh token after this one booted.
+ * @returns {Promise<string|null>}
+ */
+export async function fetchDurableEnvVar(key) {
+  if (!durableSyncConfigured()) return null;
+  try {
+    const res = await fetch(
+      `https://api.render.com/v1/services/${process.env.RENDER_SERVICE_ID}/env-vars/${encodeURIComponent(key)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.RENDER_API_KEY}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.value ?? data?.envVar?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Before treating a refresh token as dead: if Render holds a different
+ * (newer) value, return it so the caller retries instead of clearing.
+ * @returns {Promise<string|null>} newer token, or null when ours is the latest
+ */
+export async function newerDurableToken(key, triedValue) {
+  const latest = await fetchDurableEnvVar(key);
+  if (latest && latest !== triedValue) {
+    process.env[key] = latest;
+    lastSyncedValues[key] = latest;
+    return latest;
+  }
+  return null;
+}
+
+/**
  * Remove durable secrets from this process and from Render env.
  * Needed when a refresh token is revoked — otherwise the next deploy
  * reloads the dead token and every call returns Unauthorized again.

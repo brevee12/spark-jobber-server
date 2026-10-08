@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { saveTokens, loadTokens, clearTokens, getJobberAuthStatus } from './tokenStore.js';
+import { newerDurableToken } from '../src/lib/durableTokens.js';
 
 const AUTHORIZE_URL = 'https://api.getjobber.com/api/oauth/authorize';
 const TOKEN_URL = 'https://api.getjobber.com/api/oauth/token';
@@ -136,6 +137,19 @@ export async function refreshAccessToken() {
     });
   } catch (err) {
     if (isInvalidGrant(err)) {
+      const newer = await newerDurableToken('JOBBER_REFRESH_TOKEN', current.refreshToken);
+      if (newer) {
+        const data = await tokenRequest({
+          grant_type: 'refresh_token',
+          refresh_token: newer,
+          client_id: clientId,
+          client_secret: clientSecret,
+        });
+        return saveTokens({
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token || newer,
+        });
+      }
       // Dead refresh token in Render env is the usual loop: health says
       // connected, every tool call returns Unauthorized until reauth.
       await clearTokens({ clearDurable: true });
