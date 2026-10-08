@@ -544,6 +544,19 @@ function inferPaymentType(paymentAccountId, explicit) {
   return 'Check';
 }
 
+async function vendorRef(entityName) {
+  if (!entityName) return null;
+  const safe = String(entityName).replace(/'/g, "\\'");
+  const vendors = await qboQuery(
+    `SELECT Id, DisplayName FROM Vendor WHERE DisplayName = '${safe}' MAXRESULTS 1`
+  );
+  const vendor = vendors.Vendor?.[0];
+  if (vendor?.Id) {
+    return { value: String(vendor.Id), name: vendor.DisplayName, type: 'Vendor' };
+  }
+  return { name: entityName, type: 'Vendor' };
+}
+
 /**
  * Create a QBO Purchase (expense / check / CC charge).
  */
@@ -586,18 +599,8 @@ export async function postQboExpense({
     ],
   };
 
-  if (entityName) {
-    const safe = String(entityName).replace(/'/g, "\\'");
-    const vendors = await qboQuery(
-      `SELECT Id, DisplayName FROM Vendor WHERE DisplayName = '${safe}' MAXRESULTS 1`
-    );
-    const vendor = vendors.Vendor?.[0];
-    if (vendor?.Id) {
-      payload.EntityRef = { value: String(vendor.Id), name: vendor.DisplayName, type: 'Vendor' };
-    } else {
-      payload.EntityRef = { name: entityName, type: 'Vendor' };
-    }
-  }
+  const entityRef = await vendorRef(entityName);
+  if (entityRef) payload.EntityRef = entityRef;
 
   const data = await qboRequest(
     'POST',
@@ -612,6 +615,117 @@ export async function postQboExpense({
     paymentType: purchase?.PaymentType,
     totalAmt: purchase?.TotalAmt,
     txnDate: purchase?.TxnDate,
+    status: purchase?.Id ? 'created' : 'unknown',
+  };
+}
+
+function shiftIsoDate(iso, days) {
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Posted records on this card for the same amount within ±1 day — a refund
+ * already cleared in Banking (or posted earlier) shows up here.
+ */
+export async function findQboCardCreditDuplicates({ creditCardAccountId, amount, txnDate }) {
+  const amt = Number(amount).toFixed(2);
+  const where = `WHERE TxnDate >= '${shiftIsoDate(txnDate, -1)}' AND TxnDate <= '${shiftIsoDate(txnDate, 1)}'`;
+  const dupes = [];
+  for (const entity of ['Purchase', 'Deposit', 'Transfer', 'JournalEntry']) {
+    const rows = (await qboQuery(`SELECT * FROM ${entity} ${where} MAXRESULTS 1000`))[entity] || [];
+    for (const r of rows) {
+      const total = Number(r.TotalAmt ?? r.Amount).toFixed(2);
+      const touchesCard =
+        String(r.AccountRef?.value) === String(creditCardAccountId) ||
+        String(r.FromAccountRef?.value) === String(creditCardAccountId) ||
+        String(r.ToAccountRef?.value) === String(creditCardAccountId) ||
+        (r.Line || []).some(
+          (l) =>
+            String(l.JournalEntryLineDetail?.AccountRef?.value) === String(creditCardAccountId) &&
+            Number(l.Amount).toFixed(2) === amt
+        );
+      if (touchesCard && (total === amt || entity === 'JournalEntry')) {
+        dupes.push({ type: entity, id: r.Id, txnDate: r.TxnDate, credit: r.Credit ?? null });
+      }
+    }
+  }
+  return dupes;
+}
+
+/**
+ * Create a QBO Credit Card Credit (refund/return on a card): Purchase with
+ * Credit=true, booked back to the original expense account so it offsets it.
+ * Refuses to post if the card already has a same-amount record ±1 day.
+ */
+export async function postQboCreditCardCredit({
+  creditCardAccountId,
+  categoryAccountId,
+  amount,
+  txnDate,
+  payeeName,
+  memo,
+  allowDuplicate = false,
+}) {
+  const tokens = await getValidAccessToken();
+  if (!creditCardAccountId) throw new Error('creditCardAccountId is required');
+  if (!categoryAccountId) throw new Error('categoryAccountId is required');
+  const amt = Math.abs(Number(amount));
+  if (!Number.isFinite(amt) || amt <= 0) throw new Error('amount must be a positive number');
+  const date = txnDate || new Date().toISOString().slice(0, 10);
+
+  const acct = (
+    await qboQuery(
+      `SELECT Id, Name, AccountType FROM Account WHERE Id = '${String(creditCardAccountId).replace(/'/g, '')}'`
+    )
+  ).Account?.[0];
+  if (acct?.AccountType !== 'Credit Card') {
+    throw new Error(
+      `Account ${creditCardAccountId} is ${acct ? `"${acct.Name}" (${acct.AccountType})` : 'not found'} — credit card credits must post to a Credit Card account`
+    );
+  }
+
+  if (!allowDuplicate) {
+    const dupes = await findQboCardCreditDuplicates({ creditCardAccountId, amount: amt, txnDate: date });
+    if (dupes.length) {
+      return {
+        status: 'skipped_duplicate',
+        reason: `${acct.Name} already has a $${amt.toFixed(2)} record within ±1 day of ${date}`,
+        existing: dupes,
+      };
+    }
+  }
+
+  const payload = {
+    PaymentType: 'CreditCard',
+    Credit: true,
+    AccountRef: { value: String(creditCardAccountId) },
+    TxnDate: date,
+    PrivateNote: memo || undefined,
+    Line: [
+      {
+        Amount: amt,
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Description: memo || undefined,
+        AccountBasedExpenseLineDetail: {
+          AccountRef: { value: String(categoryAccountId) },
+        },
+      },
+    ],
+  };
+  const entityRef = await vendorRef(payeeName);
+  if (entityRef) payload.EntityRef = entityRef;
+
+  const data = await qboRequest('POST', `/v3/company/${tokens.realmId}/purchase`, { body: payload });
+  const purchase = data?.Purchase;
+  return {
+    id: purchase?.Id,
+    syncToken: purchase?.SyncToken,
+    credit: purchase?.Credit ?? null,
+    totalAmt: purchase?.TotalAmt,
+    txnDate: purchase?.TxnDate,
+    creditCardAccount: acct.Name,
     status: purchase?.Id ? 'created' : 'unknown',
   };
 }

@@ -25,7 +25,7 @@ QuickBooks **For Review** is not available via the QBO API. So we:
 1. `email_bookkeeping_brief` with `includeProcessed: false`, `excludeBookedInQbo: true`, `dryRun: false`, `agentUrl` = this chat.
 2. Do **not** call `qbo_create_*` / Jobber expense creates on the stage-only run.
 3. On `approve N` / `skip N`: `bookkeeping_mark_seen` (durable) for those ids; only propose writes for non–feed-only lines after confirmation.
-4. CC refunds/credits stay feed-only forever.
+4. CC refunds/credits: on approve, `qbo_create_cc_credit` against the original expense account (it refuses if the card already has a same-amount record ±1 day), then **Match** the Banking feed line. Never `qbo_create_expense` / `qbo_create_deposit` for refunds.
 
 ## Cadence
 

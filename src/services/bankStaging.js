@@ -1,7 +1,7 @@
 /**
  * Annotate SimpleFIN bank rows with CFO staging hints for Spark.
- * Credits on credit-card accounts must never be posted via qbo_create_* —
- * clear them in the QBO Banking feed against the original expense account.
+ * Credits on credit-card accounts post only via qbo_create_cc_credit (never
+ * as an expense or deposit), against the original expense account.
  */
 
 const CC_ACCOUNT_RE = /spark\s*cash|capital\s*one|credit\s*card|\bcc\b/i;
@@ -139,12 +139,13 @@ export function stageBankTransaction(tx = {}) {
     return {
       ...base,
       suggestedCategory: suggestedCategory || 'Original expense account (review)',
-      doNotPostViaApi: true,
+      doNotPostViaApi: false,
+      qboWriteTool: 'qbo_create_cc_credit',
       treatment:
         `${categoryNote || 'Card credit/refund'}. ` +
-        'QBO has no reliable MCP credit-card-credit write — clear this in the QBO Banking feed matched to the same expense account as the original purchase' +
+        'Post with qbo_create_cc_credit against the original expense account' +
         (suggestedCategory ? ` (${suggestedCategory})` : '') +
-        '. Do NOT call qbo_create_expense or qbo_create_deposit (that would duplicate when the feed clears).',
+        ', then MATCH the Banking feed line to it. Never qbo_create_expense or qbo_create_deposit.',
     };
   }
 
@@ -225,7 +226,7 @@ export function buildStagingReport(transactions = []) {
   return {
     policy: {
       creditCardCredits:
-        'Never post CC refunds/credits via qbo_create_expense or qbo_create_deposit. Clear in QBO Banking feed against the original expense account.',
+        'Never post CC refunds/credits via qbo_create_expense or qbo_create_deposit. Use qbo_create_cc_credit against the original expense account (it refuses duplicates), then Match the Banking feed line.',
       creditCardCharges:
         'Prefer QBO Banking feed categorization. qbo_create_expense only when intentionally posting ahead of the feed.',
       transfers:
