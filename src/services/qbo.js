@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { readJson, writeJson, deleteJson } from '../lib/jsonStore.js';
-import { persistEnvVars, clearEnvVars } from '../lib/durableTokens.js';
+import { persistEnvVars, clearEnvVars, newerDurableToken } from '../lib/durableTokens.js';
 
 const TOKEN_FILE = '.qbo-tokens.json';
 const AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
@@ -343,6 +343,11 @@ export async function refreshQboAccessToken() {
         err.code === 'invalid_grant' ||
         /invalid_grant/i.test(err.message || '')
       ) {
+        const newer = await newerDurableToken('QBO_REFRESH_TOKEN', current.refreshToken);
+        if (newer) {
+          const data = await tokenRequest({ grant_type: 'refresh_token', refresh_token: newer });
+          return await saveQboTokens(buildTokenPayload(data, current.realmId, newer));
+        }
         await clearQboTokens({ clearDurable: true });
         throw new Error(
           'QuickBooks refresh token is no longer valid (revoked, expired, or already used). Reconnect at /qbo/auth'
