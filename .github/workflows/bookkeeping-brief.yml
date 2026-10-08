@@ -1,0 +1,69 @@
+name: Bookkeeping brief
+
+# Stage-only email (Tue 11:59 PM / Fri 3:30 PM America/Chicago). Runs entirely
+# on the Render server via POST /bookkeeping/notify — no Cursor agent tokens.
+# Approve/skip by number later in the Cursor chat linked in the email.
+
+on:
+  schedule:
+    # GitHub cron is UTC-only: one line per DST offset; the step below keeps
+    # only the line that matches today's Chicago offset.
+    - cron: '59 4 * * 3'   # Tue 11:59 PM CDT
+    - cron: '59 5 * * 3'   # Tue 11:59 PM CST
+    - cron: '30 20 * * 5'  # Fri 3:30 PM CDT
+    - cron: '30 21 * * 5'  # Fri 3:30 PM CST
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: 'Build the brief without sending the email'
+        type: boolean
+        default: false
+
+concurrency:
+  group: bookkeeping-brief
+  cancel-in-progress: false
+
+env:
+  SERVER: https://spark-jobber-server.onrender.com
+  AGENT_URL: ${{ vars.CURSOR_AGENT_URL || 'https://cursor.com/agents/bc-e8e0ee1c-0177-44b9-a75a-58ac5d452b0b' }}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Match Chicago DST offset
+        id: gate
+        env:
+          FIRED: ${{ github.event.schedule }}
+        run: |
+          if [ -z "$FIRED" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          offset=$(TZ=America/Chicago date +%z)
+          case "$FIRED" in
+            '59 4 * * 3'|'30 20 * * 5') want=-0500 ;;
+            *) want=-0600 ;;
+          esac
+          if [ "$offset" = "$want" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Wake server (Render free tier cold start)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          curl -sS --max-time 120 --retry 5 --retry-delay 20 --retry-all-errors \
+            "$SERVER/health" -o /dev/null -w 'health %{http_code}\n'
+
+      - name: Send brief
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NOTIFY_SECRET: ${{ secrets.BOOKKEEPING_NOTIFY_SECRET }}
+          DRY_RUN: ${{ inputs.dryRun || false }}
+        run: |
+          body=$(jq -nc --arg agentUrl "$AGENT_URL" --argjson dryRun "$DRY_RUN" \
+            '{agentUrl: $agentUrl, dryRun: $dryRun, includeProcessed: false, excludeBookedInQbo: true}')
+          code=$(curl -sS --max-time 240 -o resp.json -w '%{http_code}' \
+            -X POST "$SERVER/bookkeeping/notify" \
+            -H 'Content-Type: application/json' \
+            -H "x-bookkeeping-notify-secret: $NOTIFY_SECRET" \
+            -d "$body")
+          jq '{ok, sent, dryRun, reason, issues, itemCount, to, id: .email.id}' resp.json || cat resp.json
+          # Non-200 / ok:false fails the job, so GitHub emails the repo owner.
+          [ "$code" = "200" ] && [ "$(jq -r .ok resp.json)" = "true" ]

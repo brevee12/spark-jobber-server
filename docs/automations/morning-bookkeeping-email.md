@@ -5,7 +5,11 @@ Stage-only brief for Veenstra Painting per [`../skills/spark-cfo-cursor.md`](../
 ## Schedule
 
 - **Tue 11:59 PM** and **Fri 3:30 PM** America/Chicago (Spark CFO skill cadence)
-- Trigger: Cursor Automation cron → this agent / MCP server
+- Trigger (preferred): GitHub Actions [`bookkeeping-brief.yml`](../../.github/workflows/bookkeeping-brief.yml) → `POST /bookkeeping/notify`. Runs on the server only — no Cursor agent / tokens per run. Failed runs email the repo owner (GitHub default).
+  - Manual run / test: GitHub → Actions → *Bookkeeping brief* → *Run workflow* (tick `dryRun` to skip the email).
+  - Optional: repo variable `CURSOR_AGENT_URL` (approve link) and repo secret `BOOKKEEPING_NOTIFY_SECRET` (must match Render).
+- Alternative: Cursor Automation with the prompt below (uses agent tokens each run).
+- Approvals: reply in the Cursor chat linked in the email. After writes, append to [`../bookkeeping-log.md`](../bookkeeping-log.md).
 
 ## Env (Render + automation)
 
@@ -60,6 +64,7 @@ You are the Veenstra Painting morning bookkeeping runner.
    - Only propose QBO write tools (separate Allows) for lines that are NOT doNotPostViaApi / feed-only.
    - Credit-card charges stay feed-only — approve means clear in the QBO Banking feed; never also qbo_create_* (duplicates).
    - Credit-card refunds: on approve, `qbo_create_cc_credit` (original expense account; refuses duplicates), then Match the feed line.
+   - After any QBO write, append the QBO ids to docs/bookkeeping-log.md.
 ```
 
 ## Email shape
