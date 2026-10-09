@@ -756,6 +756,27 @@ const GET_JOB = `
           taxable
         }
       }
+      jobCosting {
+        labourDuration
+        labourCost
+        totalRevenue
+      }
+      timeSheetEntries(first: 100) {
+        nodes {
+          id
+          finalDuration
+          startAt
+          endAt
+          user {
+            name {
+              full
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+        }
+      }
       visits(first: 50) {
         nodes {
           id
@@ -824,6 +845,23 @@ export async function getJob(jobId) {
         }
       : null,
     lineItems: job.lineItems?.nodes || [],
+    jobCosting: job.jobCosting
+      ? {
+          labourSeconds: job.jobCosting.labourDuration,
+          labourHours: Math.round((job.jobCosting.labourDuration / 3600) * 100) / 100,
+          labourCost: job.jobCosting.labourCost,
+          totalRevenue: job.jobCosting.totalRevenue,
+        }
+      : null,
+    timeSheets: (job.timeSheetEntries?.nodes || []).map((t) => ({
+      id: t.id,
+      seconds: t.finalDuration,
+      hours: Math.round((t.finalDuration / 3600) * 100) / 100,
+      startAt: t.startAt,
+      endAt: t.endAt,
+      user: t.user?.name?.full || null,
+    })),
+    timeSheetsTruncated: Boolean(job.timeSheetEntries?.pageInfo?.hasNextPage),
     visits: (job.visits?.nodes || []).map((v) => ({
       id: v.id,
       title: v.title,
