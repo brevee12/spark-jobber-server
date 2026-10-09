@@ -9,6 +9,7 @@ import {
   getJob,
   searchInvoices,
   getQuote,
+  introspectJobberSchema,
   searchClients,
   searchQuotes,
   searchRequests,
@@ -69,6 +70,7 @@ const JOBBER_OPS = [
   'create_expense',
   'delete_expense',
   'schedule_visit',
+  'schema',
 ];
 
 /**
@@ -184,6 +186,13 @@ async function runJobberAction(action = {}) {
         instructions: action.instructions,
         assignedUserIds: action.assignedUserIds,
         allDay: action.allDay,
+      });
+    }
+    case 'schema': {
+      return introspectJobberSchema({
+        typeName: action.typeName,
+        root: action.root,
+        filter: action.filter,
       });
     }
     default:
@@ -436,6 +445,9 @@ export const toolDefinitions = [
                 items: { type: 'string' },
               },
               allDay: { type: 'boolean' },
+              typeName: { type: 'string', description: 'schema op: GraphQL type to describe' },
+              root: { type: 'string', description: "schema op: 'query' or 'mutation' to list root fields" },
+              filter: { type: 'string', description: 'schema op: regex on field names' },
             },
             required: ['op'],
           },

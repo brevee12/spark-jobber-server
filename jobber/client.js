@@ -1528,3 +1528,56 @@ export async function getQuote(quoteId) {
     jobberWebUri: quote.jobberWebUri,
   };
 }
+
+const TYPE_REF = `kind name ofType { kind name ofType { kind name ofType { kind name } } }`;
+
+function typeName(t) {
+  if (!t) return null;
+  if (t.kind === 'NON_NULL') return `${typeName(t.ofType)}!`;
+  if (t.kind === 'LIST') return `[${typeName(t.ofType)}]`;
+  return t.name;
+}
+
+/**
+ * Schema-only introspection (no account data): fields/args of one type, or
+ * root query/mutation names matching a filter. Used to build new ops safely.
+ */
+export async function introspectJobberSchema({ typeName: name, root, filter } = {}) {
+  if (root) {
+    const field = root === 'mutation' ? 'mutationType' : 'queryType';
+    const data = await jobberGraphql(
+      `query { __schema { ${field} { fields { name args { name type { ${TYPE_REF} } } type { ${TYPE_REF} } } } } }`
+    );
+    const re = filter ? new RegExp(filter, 'i') : null;
+    return (data.__schema[field]?.fields || [])
+      .filter((f) => !re || re.test(f.name))
+      .map((f) => ({
+        name: f.name,
+        returns: typeName(f.type),
+        args: f.args.map((a) => `${a.name}: ${typeName(a.type)}`),
+      }));
+  }
+  if (!name) throw new Error('Provide typeName or root');
+  const data = await jobberGraphql(
+    `query($n: String!) { __type(name: $n) { name kind
+      fields { name args { name type { ${TYPE_REF} } } type { ${TYPE_REF} } }
+      inputFields { name type { ${TYPE_REF} } }
+      enumValues { name } } }`,
+    { n: String(name) }
+  );
+  const t = data.__type;
+  if (!t) throw new Error(`Unknown type ${name}`);
+  const re = filter ? new RegExp(filter, 'i') : null;
+  const keep = (f) => !re || re.test(f.name);
+  return {
+    name: t.name,
+    kind: t.kind,
+    fields: (t.fields || []).filter(keep).map((f) => ({
+      name: f.name,
+      type: typeName(f.type),
+      args: f.args.map((a) => `${a.name}: ${typeName(a.type)}`),
+    })),
+    inputFields: (t.inputFields || []).filter(keep).map((f) => `${f.name}: ${typeName(f.type)}`),
+    enumValues: (t.enumValues || []).map((e) => e.name),
+  };
+}
