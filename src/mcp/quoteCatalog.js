@@ -10,6 +10,11 @@ function norm(s) {
     .trim();
 }
 
+/** Rates Brennan quotes at, when they differ from the Jobber catalog price. */
+export const HOUSE_RATES = {
+  '1 labor': 60,
+};
+
 function similar(products, name) {
   const words = norm(name).split(' ').filter((w) => w.length > 2);
   return products
@@ -49,20 +54,22 @@ export function matchLineItemsToCatalog(lineItems = [], products = []) {
       productOrServiceId: product.id,
       category: item.category || product.category,
     };
-    if (item.unitPrice == null && item.price == null) enriched.unitPrice = product.unitPrice;
+    const houseRate = HOUSE_RATES[norm(product.name)];
+    if (item.unitPrice == null && item.price == null) {
+      enriched.unitPrice = houseRate != null ? houseRate : product.unitPrice;
+    }
     if (typeof item.taxable !== 'boolean' && typeof product.taxable === 'boolean') {
       enriched.taxable = product.taxable;
     }
     const price = Number(enriched.unitPrice ?? enriched.price);
     // Lump-sum service lines (qty 1) are intentionally custom-priced.
     const isLumpSum = product.category !== 'PRODUCT' && Number(enriched.quantity ?? 1) === 1;
-    if (
-      !isLumpSum &&
-      Number.isFinite(price) &&
-      Math.abs(price - Number(product.unitPrice)) > 0.005
-    ) {
+    const expected = houseRate != null ? houseRate : Number(product.unitPrice);
+    if (!isLumpSum && Number.isFinite(price) && Math.abs(price - expected) > 0.005) {
       warnings.push(
-        `Line ${i + 1} "${product.name}" priced ${price} vs catalog ${product.unitPrice}`
+        houseRate != null
+          ? `Line ${i + 1} "${product.name}" priced ${price} vs house rate ${houseRate} (catalog ${product.unitPrice})`
+          : `Line ${i + 1} "${product.name}" priced ${price} vs catalog ${product.unitPrice}`
       );
     }
     return enriched;

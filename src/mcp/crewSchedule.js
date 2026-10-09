@@ -266,7 +266,7 @@ export async function runCrewSchedule(args = {}) {
         }
         const v = await createVisit({
           jobId: active[0].jobId,
-          startAt: `${step.date}T14:00:00Z`,
+          date: step.date,
           allDay: true,
           assignedUserIds: step.crew.map((c) => c.id),
         });
