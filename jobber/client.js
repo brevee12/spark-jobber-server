@@ -413,6 +413,10 @@ function normalizeQuoteLineItems(lineItems = []) {
       };
       if (item.description) row.description = item.description;
       if (typeof item.taxable === 'boolean') row.taxable = item.taxable;
+      if (item.productOrServiceId) row.productOrServiceId = String(item.productOrServiceId);
+      if (item.category) row.category = String(item.category).toUpperCase();
+      if (typeof item.optional === 'boolean') row.optional = item.optional;
+      if (typeof item.textOnly === 'boolean') row.textOnly = item.textOnly;
       return row;
     });
 }
@@ -1580,4 +1584,198 @@ export async function introspectJobberSchema({ typeName: name, root, filter } = 
     inputFields: (t.inputFields || []).filter(keep).map((f) => `${f.name}: ${typeName(f.type)}`),
     enumValues: (t.enumValues || []).map((e) => e.name),
   };
+}
+
+const BUSINESS_TZ = () => process.env.JOBBER_TIMEZONE || 'America/Chicago';
+
+const LIST_PRODUCTS = `
+  query Products($first: Int!, $after: String, $searchTerm: String) {
+    products(first: $first, after: $after, searchTerm: $searchTerm) {
+      nodes { id name description category defaultUnitCost taxable visible }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/** Jobber Products & Services price book (all pages). */
+export async function listProducts({ searchTerm } = {}) {
+  const out = [];
+  let after = null;
+  for (let page = 0; page < 20; page += 1) {
+    const data = await jobberGraphql(LIST_PRODUCTS, {
+      first: 100,
+      after,
+      searchTerm: searchTerm || null,
+    });
+    const conn = data?.products;
+    out.push(
+      ...(conn?.nodes || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description || null,
+        category: p.category,
+        unitPrice: p.defaultUnitCost,
+        taxable: p.taxable,
+        visible: p.visible,
+      }))
+    );
+    if (!conn?.pageInfo?.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  return out;
+}
+
+const LIST_USERS = `
+  query Users($first: Int!) {
+    users(first: $first, filter: { status: ACTIVATED }) {
+      nodes { id name { first last full } email { raw } }
+    }
+  }
+`;
+
+/** Active Jobber team members (crew). */
+export async function listUsers() {
+  const data = await jobberGraphql(LIST_USERS, { first: 100 });
+  return (data?.users?.nodes || []).map((u) => ({
+    id: u.id,
+    name: u.name?.full || [u.name?.first, u.name?.last].filter(Boolean).join(' '),
+    firstName: u.name?.first || null,
+    lastName: u.name?.last || null,
+    email: u.email?.raw || null,
+  }));
+}
+
+const VISITS_IN_RANGE = `
+  query Visits($first: Int!, $after: String, $filter: VisitFilterAttributes, $timezone: Timezone) {
+    visits(first: $first, after: $after, filter: $filter, timezone: $timezone) {
+      nodes {
+        id title startAt endAt allDay visitStatus isComplete instructions
+        job { id jobNumber title }
+        client { id name }
+        property { address { street1 city } }
+        assignedUsers(first: 25) { nodes { id name { full } } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+function dayBoundsUtc(date, tz) {
+  // Widen by a day each side, then filter on the local date string — avoids
+  // DST offset math while still catching all-day and late-evening visits.
+  const d = new Date(`${date}T12:00:00Z`);
+  const before = new Date(d.getTime() + 36 * 3600 * 1000).toISOString();
+  const after = new Date(d.getTime() - 36 * 3600 * 1000).toISOString();
+  return { after, before, tz };
+}
+
+export function localDate(iso, tz = BUSINESS_TZ()) {
+  if (!iso) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(iso));
+}
+
+export function todayLocal(tz = BUSINESS_TZ()) {
+  return localDate(new Date().toISOString(), tz);
+}
+
+/**
+ * Visits on one local calendar day (America/Chicago by default), incl. crew.
+ */
+export async function listVisitsForDay({ date } = {}) {
+  const tz = BUSINESS_TZ();
+  const day = date || todayLocal(tz);
+  const { after, before } = dayBoundsUtc(day, tz);
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 10; page += 1) {
+    const data = await jobberGraphql(VISITS_IN_RANGE, {
+      first: 50,
+      after: cursor,
+      filter: { startAt: { after, before } },
+      timezone: tz,
+    });
+    const conn = data?.visits;
+    for (const v of conn?.nodes || []) {
+      if (localDate(v.startAt, tz) !== day) continue;
+      out.push({
+        id: v.id,
+        title: v.title,
+        startAt: v.startAt,
+        endAt: v.endAt,
+        allDay: v.allDay,
+        status: v.visitStatus,
+        isComplete: v.isComplete,
+        jobId: v.job?.id || null,
+        jobNumber: v.job?.jobNumber || null,
+        jobTitle: v.job?.title || null,
+        clientName: v.client?.name || null,
+        address: [v.property?.address?.street1, v.property?.address?.city].filter(Boolean).join(', '),
+        crew: (v.assignedUsers?.nodes || []).map((u) => ({ id: u.id, name: u.name?.full || null })),
+      });
+    }
+    if (!conn?.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  out.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
+  return { date: day, timezone: tz, count: out.length, visits: out };
+}
+
+const EDIT_VISIT_CREW = `
+  mutation EditCrew($visitId: EncodedId!, $input: VisitEditAssignedUsersInput!) {
+    visitEditAssignedUsers(visitId: $visitId, input: $input) {
+      visit { id assignedUsers(first: 25) { nodes { id name { full } } } }
+      userErrors { message path }
+    }
+  }
+`;
+
+/** Replace the crew on a visit (full list of user ids). */
+export async function setVisitCrew({ visitId, assignedUserIds = [] } = {}) {
+  if (!visitId) throw new Error('visitId is required');
+  const data = await jobberGraphql(EDIT_VISIT_CREW, {
+    visitId: String(visitId),
+    input: { assignedUserIds: assignedUserIds.map(String) },
+  });
+  const result = data?.visitEditAssignedUsers;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return {
+    visitId: result?.visit?.id || visitId,
+    crew: (result?.visit?.assignedUsers?.nodes || []).map((u) => ({ id: u.id, name: u.name?.full || null })),
+  };
+}
+
+const EDIT_VISIT_SCHEDULE = `
+  mutation EditSchedule($id: EncodedId!, $input: VisitEditScheduleInput!) {
+    visitEditSchedule(id: $id, input: $input) {
+      visit { id startAt endAt allDay }
+      userErrors { message path }
+    }
+  }
+`;
+
+/** Move a visit to another local date (and optional HH:MM times). */
+export async function rescheduleVisit({ visitId, date, startTime, endDate, endTime } = {}) {
+  if (!visitId) throw new Error('visitId is required');
+  if (!date) throw new Error('date (YYYY-MM-DD) is required');
+  const tz = BUSINESS_TZ();
+  const at = (d, t) => ({
+    date: d,
+    timezone: tz,
+    ...(t ? { time: /^\d{2}:\d{2}$/.test(t) ? `${t}:00` : t } : {}),
+  });
+  const input = { startAt: at(date, startTime) };
+  if (endDate || endTime) input.endAt = at(endDate || date, endTime);
+  const data = await jobberGraphql(EDIT_VISIT_SCHEDULE, { id: String(visitId), input });
+  const result = data?.visitEditSchedule;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return result?.visit || { id: visitId };
 }

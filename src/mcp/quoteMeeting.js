@@ -11,7 +11,9 @@ import {
   createQuote,
   editQuote,
   getQuote,
+  listProducts,
 } from '../../jobber/client.js';
+import { matchLineItemsToCatalog } from './quoteCatalog.js';
 
 function norm(s) {
   return String(s || '')
@@ -228,8 +230,21 @@ export async function runQuoteMeeting(args = {}) {
     );
   }
 
+  let catalog = null;
+  if (Array.isArray(args.lineItems) && args.lineItems.length) {
+    try {
+      const products = await listProducts();
+      catalog = matchLineItemsToCatalog(args.lineItems, products);
+    } catch (err) {
+      catalog = { lineItems: args.lineItems, unmatched: [], warnings: [`Catalog lookup failed: ${err.message}`] };
+    }
+  }
+
   const plan = {
     decision,
+    catalog: catalog
+      ? { warnings: catalog.warnings, unmatched: catalog.unmatched, lineItems: catalog.lineItems }
+      : null,
     matches: {
       clients: clientSearch,
       requests: requestSearch,
@@ -246,6 +261,13 @@ export async function runQuoteMeeting(args = {}) {
   }
 
   // --- Apply ---
+  if (catalog?.unmatched?.length && !args.allowCustomLineItems) {
+    throw new Error(
+      `Not writing: ${catalog.unmatched.length} line item(s) are not in Jobber Products & Services. ` +
+        `${catalog.warnings.join(' ')} Rename to a catalog item, or pass allowCustomLineItems:true.`
+    );
+  }
+
   const actionsTaken = [];
   let clientId = client?.id || null;
 
@@ -282,17 +304,13 @@ export async function runQuoteMeeting(args = {}) {
     });
   }
 
-  const title =
-    args.title ||
-    (street ? `Exterior painting — ${street}` : null) ||
-    (clientName ? `Painting quote — ${clientName}` : 'Painting quote');
+  // House style: short scope titles ("Exterior Repaint"), no client name/address.
+  const title = args.title || 'Painting';
 
-  let message = args.message || '';
-  if (args.meetingNotes && !message) {
-    message = `Draft from on-site quote meeting.\n\n${args.meetingNotes}`;
-  }
+  // Client-facing message stays empty unless given; meeting notes go on the client record only.
+  const message = args.message || '';
 
-  const lineItems = Array.isArray(args.lineItems) ? args.lineItems : [];
+  const lineItems = catalog?.lineItems || (Array.isArray(args.lineItems) ? args.lineItems : []);
   let quoteResult;
 
   if (quote?.id) {

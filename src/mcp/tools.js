@@ -10,6 +10,11 @@ import {
   searchInvoices,
   getQuote,
   introspectJobberSchema,
+  listProducts,
+  listUsers,
+  listVisitsForDay,
+  setVisitCrew,
+  rescheduleVisit,
   searchClients,
   searchQuotes,
   searchRequests,
@@ -30,6 +35,7 @@ import {
 } from '../services/qboCategorySuggest.js';
 import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
+import { runCrewSchedule } from './crewSchedule.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -70,6 +76,11 @@ const JOBBER_OPS = [
   'create_expense',
   'delete_expense',
   'schedule_visit',
+  'list_products',
+  'list_users',
+  'day_schedule',
+  'set_visit_crew',
+  'reschedule_visit',
   'schema',
 ];
 
@@ -186,6 +197,32 @@ async function runJobberAction(action = {}) {
         instructions: action.instructions,
         assignedUserIds: action.assignedUserIds,
         allDay: action.allDay,
+      });
+    }
+    case 'list_products': {
+      const products = await listProducts({ searchTerm: action.query });
+      return { count: products.length, products };
+    }
+    case 'list_users': {
+      const users = await listUsers();
+      return { count: users.length, users };
+    }
+    case 'day_schedule': {
+      return listVisitsForDay({ date: action.date });
+    }
+    case 'set_visit_crew': {
+      return setVisitCrew({
+        visitId: action.visitId || action.id,
+        assignedUserIds: action.assignedUserIds || [],
+      });
+    }
+    case 'reschedule_visit': {
+      return rescheduleVisit({
+        visitId: action.visitId || action.id,
+        date: action.date,
+        startTime: action.startTime,
+        endDate: action.endDate,
+        endTime: action.endTime,
       });
     }
     case 'schema': {
@@ -390,7 +427,7 @@ export const toolDefinitions = [
   {
     name: 'jobber_batch',
     description:
-      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create/delete expense, schedule_visit. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Does NOT write to QuickBooks.',
+      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create/delete expense, schedule_visit, list_products (price book), list_users (crew), day_schedule, set_visit_crew, reschedule_visit. For day-of crew changes prefer crew_schedule. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Does NOT write to QuickBooks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -445,6 +482,10 @@ export const toolDefinitions = [
                 items: { type: 'string' },
               },
               allDay: { type: 'boolean' },
+              visitId: { type: 'string' },
+              startTime: { type: 'string', description: 'HH:MM (reschedule_visit)' },
+              endDate: { type: 'string' },
+              endTime: { type: 'string' },
               typeName: { type: 'string', description: 'schema op: GraphQL type to describe' },
               root: { type: 'string', description: "schema op: 'query' or 'mutation' to list root fields" },
               filter: { type: 'string', description: 'schema op: regex on field names' },
@@ -459,7 +500,7 @@ export const toolDefinitions = [
   {
     name: 'quote_meeting',
     description:
-      'PREFERRED after summarizing a client quote-meeting voice recording. ONE Allow: search clients/quotes/requests, decide whether to create or reuse a client and whether to update an existing draft quote or create a new one, then optionally write the Jobber draft (apply:true) so it is ready to review/send. Pass clientName/street/phone/email/title/message/lineItems from the transcript. Dry-run with apply:false first if unsure.',
+      'PREFERRED after summarizing a client quote-meeting voice recording. ONE Allow: search clients/quotes/requests, decide whether to create or reuse a client and whether to update an existing draft quote or create a new one, then optionally write the Jobber draft (apply:true) so it is ready to review/send. Pass clientName/street/phone/email/title/message/lineItems from the transcript. Dry-run with apply:false first if unsure. House style (docs/skills/jobber-quote-style.md): short scope title ("Exterior Repaint"), lines from Products & Services ("1 Labor" hours @60 with "To …" scope lines and *exclusions, paint gallons, "Misc. Supplies", "TZ 50 Lift" days), message usually empty, 20% deposit only when mentioned.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -503,13 +544,69 @@ export const toolDefinitions = [
         lineItems: {
           type: 'array',
           description:
-            'Quote lines: [{ name, description, quantity, unitPrice, taxable }]',
+            'Quote lines: [{ name, description, quantity, unitPrice?, taxable?, optional? }]. name must be a Jobber Products & Services item (e.g. "1 Labor", "Emerald Exterior - Satin", "Misc. Supplies", "TZ 50 Lift"); price/taxable default from the catalog. See docs/skills/jobber-quote-style.md.',
           items: { type: 'object' },
         },
         replaceLineItems: {
           type: 'boolean',
           description:
             'When updating a quote, replace existing lines (default true if lineItems provided)',
+        },
+        allowCustomLineItems: {
+          type: 'boolean',
+          description:
+            'Allow lines that are not in Products & Services (default false — apply refuses them)',
+        },
+      },
+    },
+  },
+  {
+    name: 'crew_schedule',
+    description:
+      'Jobber crew/schedule for a day. No changes = show that day\'s visits with crew + the team list. With changes = plan (apply:false) or make (apply:true) day-of crew edits and reschedules. Nothing is written if any person or job is ambiguous. Use for "put Kevin and Tom on Urbanski today", "take Ryan off Blom", "move Thomason to Friday".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description: "today (default) | tomorrow | weekday name | YYYY-MM-DD (America/Chicago)",
+        },
+        apply: { type: 'boolean', description: 'false (default) = plan only; true = write to Jobber' },
+        changes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              job: {
+                type: 'string',
+                description: 'Client name, job number (e.g. 26097), job title, or visit id — must match one visit that day',
+              },
+              people: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Team member names (first name ok if unique)',
+              },
+              mode: {
+                type: 'string',
+                description: 'add (default) | set (replace crew) | remove',
+              },
+              exclusive: {
+                type: 'boolean',
+                description: 'Also take these people off their other visits that day',
+              },
+              moveTo: {
+                type: 'string',
+                description: 'Reschedule this visit to another day (today/tomorrow/weekday/YYYY-MM-DD)',
+              },
+              startTime: { type: 'string', description: 'HH:MM for moveTo (optional)' },
+              endTime: { type: 'string', description: 'HH:MM for moveTo (optional)' },
+              createVisitIfMissing: {
+                type: 'boolean',
+                description: 'If the job has no visit that day, add an all-day visit with these people',
+              },
+            },
+            required: ['job'],
+          },
         },
       },
     },
@@ -803,6 +900,10 @@ export async function callTool(name, args = {}) {
       case 'jobber_batch': {
         const batch = await runJobberBatch(args.actions);
         return ok(batch);
+      }
+
+      case 'crew_schedule': {
+        return ok(await runCrewSchedule(args));
       }
 
       case 'quote_meeting': {
