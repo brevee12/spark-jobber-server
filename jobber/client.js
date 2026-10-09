@@ -1847,3 +1847,139 @@ export async function rescheduleVisit({ visitId, date, startTime, endDate, endTi
   }
   return result?.visit || { id: visitId };
 }
+
+const GET_REQUEST = `
+  query GetRequest($id: EncodedId!) {
+    request(id: $id) {
+      id
+      title
+      requestStatus
+      client { id name }
+      assessment {
+        id
+        title
+        startAt
+        endAt
+        allDay
+        assignedUsers(first: 15) { nodes { id name { full } } }
+      }
+    }
+  }
+`;
+
+function mapAssessment(a) {
+  if (!a) return null;
+  return {
+    id: a.id,
+    title: a.title,
+    startAt: a.startAt,
+    endAt: a.endAt,
+    allDay: a.allDay,
+    crew: (a.assignedUsers?.nodes || []).map((u) => ({ id: u.id, name: u.name?.full || null })),
+  };
+}
+
+export async function getRequest(requestId) {
+  if (!requestId) throw new Error('requestId is required');
+  const data = await jobberGraphql(GET_REQUEST, { id: String(requestId) });
+  const request = data?.request;
+  if (!request) throw new Error(`Request not found: ${requestId}`);
+  return {
+    id: request.id,
+    title: request.title,
+    requestStatus: request.requestStatus,
+    client: request.client ? { id: request.client.id, name: request.client.name } : null,
+    assessment: mapAssessment(request.assessment),
+  };
+}
+
+const ASSESSMENT_FIELDS = `
+  id
+  title
+  startAt
+  endAt
+  allDay
+  assignedUsers(first: 15) { nodes { id name { full } } }
+`;
+
+const CREATE_ASSESSMENT = `
+  mutation CreateAssessment($requestId: EncodedId!, $input: AssessmentCreateInput!) {
+    assessmentCreate(requestId: $requestId, input: $input) {
+      assessment { ${ASSESSMENT_FIELDS} }
+      userErrors { message path }
+    }
+  }
+`;
+
+const EDIT_ASSESSMENT = `
+  mutation EditAssessment($assessmentId: EncodedId!, $input: AssessmentEditInput!) {
+    assessmentEdit(assessmentId: $assessmentId, input: $input) {
+      assessment { ${ASSESSMENT_FIELDS} }
+      userErrors { message path }
+    }
+  }
+`;
+
+function assessmentSchedule({ date, startTime, endTime, endDate, assignedUserIds }) {
+  const tz = BUSINESS_TZ();
+  const at = (d, t) => ({
+    date: d,
+    timezone: tz,
+    time: /^\d{2}:\d{2}$/.test(t) ? `${t}:00` : t,
+  });
+  if (!date || !startTime) throw new Error('date and startTime are required');
+  const schedule = { startAt: at(date, startTime) };
+  if (endTime) schedule.endAt = at(endDate || date, endTime);
+  if (Array.isArray(assignedUserIds) && assignedUserIds.length) {
+    schedule.teamMemberIdsToAssign = assignedUserIds.map(String);
+  }
+  return schedule;
+}
+
+/** On-site meeting for a request. One assessment per request. */
+export async function createAssessment({
+  requestId,
+  date,
+  startTime,
+  endTime,
+  endDate,
+  assignedUserIds,
+  instructions,
+} = {}) {
+  if (!requestId) throw new Error('requestId is required');
+  const input = {
+    schedule: assessmentSchedule({ date, startTime, endTime, endDate, assignedUserIds }),
+  };
+  if (instructions) input.instructions = instructions;
+  const data = await jobberGraphql(CREATE_ASSESSMENT, { requestId: String(requestId), input });
+  const result = data?.assessmentCreate;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return mapAssessment(result?.assessment);
+}
+
+export async function editAssessment({
+  assessmentId,
+  date,
+  startTime,
+  endTime,
+  endDate,
+  assignedUserIds,
+  title,
+  instructions,
+} = {}) {
+  if (!assessmentId) throw new Error('assessmentId is required');
+  const input = {};
+  if (date && startTime) {
+    input.schedule = assessmentSchedule({ date, startTime, endTime, endDate, assignedUserIds });
+  }
+  if (title) input.title = title;
+  if (instructions) input.instructions = instructions;
+  const data = await jobberGraphql(EDIT_ASSESSMENT, { assessmentId: String(assessmentId), input });
+  const result = data?.assessmentEdit;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return mapAssessment(result?.assessment);
+}

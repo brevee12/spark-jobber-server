@@ -18,6 +18,8 @@ merge date.
 
 ## 2026-10-09
 
+- **Client meetings.** Can read a request and create or reschedule its assessment (on-site meeting) with a time and crew. [#24](https://github.com/brevee12/spark-jobber-server/pull/24)
+
 - **Job hours.** `get_job` now includes Jobber job costing (labour hours) and timesheet entries. [#23](https://github.com/brevee12/spark-jobber-server/pull/23)
 
 - **Quote labor defaults to $60/hr** (Jobber catalog is $55). A different hourly rate is warned. [#22](https://github.com/brevee12/spark-jobber-server/pull/22)
