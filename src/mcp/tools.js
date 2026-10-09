@@ -15,6 +15,9 @@ import {
   listVisitsForDay,
   setVisitCrew,
   rescheduleVisit,
+  getRequest,
+  createAssessment,
+  editAssessment,
   searchClients,
   searchQuotes,
   searchRequests,
@@ -81,6 +84,9 @@ const JOBBER_OPS = [
   'day_schedule',
   'set_visit_crew',
   'reschedule_visit',
+  'get_request',
+  'create_assessment',
+  'edit_assessment',
   'schema',
 ];
 
@@ -223,6 +229,32 @@ async function runJobberAction(action = {}) {
         startTime: action.startTime,
         endDate: action.endDate,
         endTime: action.endTime,
+      });
+    }
+    case 'get_request': {
+      return getRequest(action.requestId || action.id);
+    }
+    case 'create_assessment': {
+      return createAssessment({
+        requestId: action.requestId || action.id,
+        date: action.date,
+        startTime: action.startTime,
+        endTime: action.endTime,
+        endDate: action.endDate,
+        assignedUserIds: action.assignedUserIds,
+        instructions: action.instructions,
+      });
+    }
+    case 'edit_assessment': {
+      return editAssessment({
+        assessmentId: action.assessmentId || action.id,
+        date: action.date,
+        startTime: action.startTime,
+        endTime: action.endTime,
+        endDate: action.endDate,
+        assignedUserIds: action.assignedUserIds,
+        title: action.title,
+        instructions: action.instructions,
       });
     }
     case 'schema': {
@@ -486,6 +518,7 @@ export const toolDefinitions = [
               startTime: { type: 'string', description: 'HH:MM (reschedule_visit)' },
               endDate: { type: 'string' },
               endTime: { type: 'string' },
+              assessmentId: { type: 'string' },
               typeName: { type: 'string', description: 'schema op: GraphQL type to describe' },
               root: { type: 'string', description: "schema op: 'query' or 'mutation' to list root fields" },
               filter: { type: 'string', description: 'schema op: regex on field names' },
