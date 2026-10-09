@@ -18,6 +18,8 @@ merge date.
 
 ## 2026-10-09
 
+- **Quote labor defaults to $60/hr** (Jobber catalog is $55). A different hourly rate is warned. [#22](https://github.com/brevee12/spark-jobber-server/pull/22)
+- **Visit create matches Jobber's current API** (local date + timezone, crew on the schedule). Day-of "add a visit" works. [#22](https://github.com/brevee12/spark-jobber-server/pull/22)
 - **Crew scheduling by voice/chat.** New `crew_schedule` tool: see a day's visits and crew, add/remove/replace people on a job, move someone off their other jobs that day, reschedule a visit, or add a visit. Nothing is written if a name or job is ambiguous. [#20](https://github.com/brevee12/spark-jobber-server/pull/20)
 - **Quote drafts use the Jobber price book.** Line items are matched to Products & Services (catalog id, price, taxable); unknown items are refused unless allowed; rate differences vs the catalog are warned. House style guide from 24 sent quotes: `docs/skills/jobber-quote-style.md`. [#20](https://github.com/brevee12/spark-jobber-server/pull/20), [#21](https://github.com/brevee12/spark-jobber-server/pull/21)
 - Read-only Jobber schema lookup used to build the above. [#19](https://github.com/brevee12/spark-jobber-server/pull/19)

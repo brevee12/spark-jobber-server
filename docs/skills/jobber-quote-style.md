@@ -43,10 +43,10 @@ Short scope, no client name or address: `Exterior Repaint`, `Interior Painting`,
 | `Built-in Allowance` | Misc built-ins | qty 1 @ $X | List the built-ins |
 | `Trash Disposal` | Scrap removal | qty 1 @ $250 | Optional; "No charge if you provide a dumpster" |
 
-**Rates:** omit `unitPrice` to use the catalog price. As of 2026-10-08 the
-catalog has `1 Labor` $55 and `Painting Square Foot Price - Interior` $4.25,
-while recent quotes used $60 and $4.75 — the tool warns when an hourly/per-unit
-price differs from the catalog. Lump-sum lines (qty 1) are custom-priced.
+**Rates:** omit `unitPrice` on `1 Labor` and it bills at the house rate of
+**$60/hr** (the Jobber catalog still says $55; Brennan's default is $60). A
+different hourly rate is warned. Other items use the catalog price, and a
+difference is warned. Lump-sum lines (qty 1) are custom-priced.
 
 Order: main labor → paint/primer → misc supplies → lift → add-on scopes
 (each add-on is its own `1 Labor` line, with its own material line if needed).

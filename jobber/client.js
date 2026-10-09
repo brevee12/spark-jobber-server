@@ -612,42 +612,72 @@ const CREATE_VISIT = `
 `;
 
 /**
+ * Jobber schedule points are a local date (+ optional time) and a timezone.
+ * A date-only value, or allDay, omits the time.
+ */
+function toSchedulePoint(value, { time, allDay, tz }) {
+  if (value == null || value === '') return null;
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const at = { date: raw, timezone: tz };
+    if (time && !allDay) at.time = /^\d{2}:\d{2}$/.test(time) ? `${time}:00` : time;
+    return at;
+  }
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) throw new Error(`Invalid date/time: ${value}`);
+  const date = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+  if (allDay) return { date, timezone: tz };
+  const clock = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(d);
+  return { date, time: clock, timezone: tz };
+}
+
+/**
  * Schedule a visit on an existing Jobber job (date/time, instructions, crew).
+ * startAt may be YYYY-MM-DD or an ISO timestamp; `date` is YYYY-MM-DD.
  */
 export async function createVisit({
   jobId,
   startAt,
   endAt,
+  date,
+  startTime,
+  endDate,
+  endTime,
   title,
   instructions,
   assignedUserIds = [],
   allDay,
 } = {}) {
   if (!jobId) throw new Error('jobId is required');
-  if (!startAt) throw new Error('startAt is required (ISO-8601)');
+  const tz = process.env.JOBBER_TIMEZONE || 'America/Chicago';
+  const start = toSchedulePoint(date || startAt, { time: startTime, allDay, tz });
+  if (!start) throw new Error('startAt or date is required');
 
-  const visitAttributes = {
-    schedule: {
-      startAt: { isoTimestamp: String(startAt) },
-    },
-  };
-
-  if (endAt) {
-    visitAttributes.schedule.endAt = { isoTimestamp: String(endAt) };
+  const schedule = { startAt: start };
+  const end = toSchedulePoint(endDate || endAt, { time: endTime, allDay, tz });
+  if (end) schedule.endAt = end;
+  if (Array.isArray(assignedUserIds) && assignedUserIds.length > 0) {
+    schedule.teamMemberIdsToAssign = assignedUserIds.map(String);
   }
+
+  const visitAttributes = { schedule };
   if (title) visitAttributes.title = title;
   if (instructions) visitAttributes.instructions = instructions;
-  if (typeof allDay === 'boolean') visitAttributes.allDay = allDay;
-  if (Array.isArray(assignedUserIds) && assignedUserIds.length > 0) {
-    visitAttributes.assignedUserIds = assignedUserIds.map(String);
-  }
 
   const data = await jobberGraphql(CREATE_VISIT, {
     jobId: String(jobId),
-    input: {
-      visits: [visitAttributes],
-      aggregateAssignmentEmails: false,
-    },
+    input: { visits: [visitAttributes] },
   });
   const result = data?.visitCreate;
 
