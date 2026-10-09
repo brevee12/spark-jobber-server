@@ -54,8 +54,10 @@ export function matchLineItemsToCatalog(lineItems = [], products = []) {
       enriched.taxable = product.taxable;
     }
     const price = Number(enriched.unitPrice ?? enriched.price);
+    // Lump-sum service lines (qty 1) are intentionally custom-priced.
+    const isLumpSum = product.category !== 'PRODUCT' && Number(enriched.quantity ?? 1) === 1;
     if (
-      product.category === 'PRODUCT' &&
+      !isLumpSum &&
       Number.isFinite(price) &&
       Math.abs(price - Number(product.unitPrice)) > 0.005
     ) {

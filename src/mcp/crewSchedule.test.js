@@ -86,6 +86,16 @@ assert(/more than one/.test(resolvePerson('Veenstra', users).problem), 'ambiguou
   assert(r.lineItems[0].taxable === true && r.lineItems[0].name === '1 Labor', 'catalog name + taxable');
   assert(r.warnings.some((w) => /priced 80 vs catalog 87.04/.test(w)), 'product price drift warned');
   assert(r.unmatched.length === 1 && r.unmatched[0].suggestions[0] === 'Emerald Exterior - Satin', 'suggestion');
+
+  const rate = matchLineItemsToCatalog(
+    [
+      { name: '1 Labor', quantity: 80, unitPrice: 60 },
+      { name: '1 Labor', quantity: 1, unitPrice: 2800 },
+    ],
+    [{ id: 'P1', name: '1 Labor', category: 'SERVICE', unitPrice: 55, taxable: true }]
+  );
+  assert(rate.warnings.length === 1, `hourly drift warned once, lump sum not: ${rate.warnings}`);
+  assert(/Line 1 "1 Labor" priced 60 vs catalog 55/.test(rate.warnings[0]), 'hourly rate drift');
 }
 
 console.log('crewSchedule.test.js: all assertions passed');

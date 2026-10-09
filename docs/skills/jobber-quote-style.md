@@ -26,7 +26,7 @@ Short scope, no client name or address: `Exterior Repaint`, `Interior Painting`,
 
 | Line | Use | Typical qty / price | Description style |
 | --- | --- | --- | --- |
-| `1 Labor` | Main scope, hourly | hours @ $60 (exteriors ~70–160 h) | Scope lines (below) |
+| `1 Labor` | Main scope, hourly | hours @ rate (exteriors ~70–160 h) | Scope lines (below) |
 | `1 Labor` | Lump-sum scope / extra area | qty 1 @ $X | Scope lines; often "Includes paint and labor" |
 | `Emerald Exterior - Satin` | Exterior paint | gallons @ catalog (~1 gal per 7–10 labor h) | `Exterior Paint` |
 | `Exterior Oil-Based Primer` | Bare wood / cedar | gallons @ catalog | `Oil primer for siding.` |
@@ -42,6 +42,11 @@ Short scope, no client name or address: `Exterior Repaint`, `Interior Painting`,
 | `Painting Square Foot Price - Garage` | Garage | sq ft @ $2.50 | `1 Prime coat and 1 coat ceiling paint as finish` |
 | `Built-in Allowance` | Misc built-ins | qty 1 @ $X | List the built-ins |
 | `Trash Disposal` | Scrap removal | qty 1 @ $250 | Optional; "No charge if you provide a dumpster" |
+
+**Rates:** omit `unitPrice` to use the catalog price. As of 2026-10-08 the
+catalog has `1 Labor` $55 and `Painting Square Foot Price - Interior` $4.25,
+while recent quotes used $60 and $4.75 — the tool warns when an hourly/per-unit
+price differs from the catalog. Lump-sum lines (qty 1) are custom-priced.
 
 Order: main labor → paint/primer → misc supplies → lift → add-on scopes
 (each add-on is its own `1 Labor` line, with its own material line if needed).
