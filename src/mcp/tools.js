@@ -500,7 +500,7 @@ export const toolDefinitions = [
   {
     name: 'quote_meeting',
     description:
-      'PREFERRED after summarizing a client quote-meeting voice recording. ONE Allow: search clients/quotes/requests, decide whether to create or reuse a client and whether to update an existing draft quote or create a new one, then optionally write the Jobber draft (apply:true) so it is ready to review/send. Pass clientName/street/phone/email/title/message/lineItems from the transcript. Dry-run with apply:false first if unsure. House style (docs/skills/jobber-quote-style.md): short scope title ("Exterior Repaint"), lines from Products & Services ("1 Labor" hours @60 with "To …" scope lines and *exclusions, paint gallons, "Misc. Supplies", "TZ 50 Lift" days), message usually empty, 20% deposit only when mentioned.',
+      'PREFERRED after summarizing a client quote-meeting voice recording. ONE Allow: search clients/quotes/requests, decide whether to create or reuse a client and whether to update an existing draft quote or create a new one, then optionally write the Jobber draft (apply:true) so it is ready to review/send. Pass clientName/street/phone/email/title/message/lineItems from the transcript. Dry-run with apply:false first if unsure. House style (docs/skills/jobber-quote-style.md): short scope title ("Exterior Repaint"), lines from Products & Services ("1 Labor" hours (omit unitPrice for catalog rate) with "To …" scope lines and *exclusions, paint gallons, "Misc. Supplies", "TZ 50 Lift" days), message usually empty, 20% deposit only when mentioned.',
     inputSchema: {
       type: 'object',
       properties: {
