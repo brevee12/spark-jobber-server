@@ -1,12 +1,14 @@
 /**
  * Parse the text of a Sherwin-Williams invoice packet.
  * Quantity and can size are on these invoices. QuickBooks does not store them.
- * Gallons are qty × size for GALLON, 5 GAL, QUART, and PINT. A negative
- * price is a return. Brushes, pails, and tubes are not gallons.
+ * On these invoices the QTY column is already gallons for a GALLON or 5 GAL
+ * line. "5 GAL" is the package, not a multiplier: qty 10 of a 5 GAL item is
+ * 10 gallons. A quart is a quarter gallon. A negative price is a return.
+ * Brushes, pails, and tubes are not gallons.
  */
 
 const PAINT_SIZES = [
-  ['5 GAL', 5],
+  ['5 GAL', 1],
   ['GALLON', 1],
   ['QUART', 0.25],
   ['PINT', 0.125],

@@ -254,7 +254,7 @@ export function invoiceGallonDescription(invoice) {
   const items = (invoice.lines || [])
     .filter((line) => line.gallons != null)
     .slice(0, 8)
-    .map((line) => `${formatGallons(line.qty)} × ${String(line.size).toLowerCase()} ${line.description}`);
+    .map((line) => `${formatGallons(line.gallons)} gal ${line.description}`);
   return [
     invoice.gallons == null ? null : `Gallons: ${formatGallons(invoice.gallons)}`,
     `Sherwin-Williams invoice ${invoice.docNumber}`,
