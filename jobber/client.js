@@ -1,5 +1,6 @@
 import { loadTokens } from './tokenStore.js';
 import { refreshAccessToken } from './oauth.js';
+import { jobsWithExactNumber } from '../src/mcp/jobberNumbers.js';
 
 const GRAPHQL_URL = 'https://api.getjobber.com/api/graphql';
 
@@ -196,17 +197,20 @@ const SEARCH_JOBS = `
 
 /**
  * Search Jobber jobs by jobNumber or free-text query.
+ * jobNumber matches Job.jobNumber exactly. Quote, request, and invoice
+ * numbers are separate sequences and are not job matches.
  */
 export async function searchJobs({ jobNumber, query, limit = 25 } = {}) {
-  const searchTerm = (jobNumber != null && String(jobNumber).trim() !== '')
-    ? String(jobNumber).trim()
+  const byNumber = jobNumber != null && String(jobNumber).trim() !== '';
+  const searchTerm = byNumber
+    ? String(jobNumber).trim().replace(/^#/, '')
     : (query || '').trim();
 
   if (!searchTerm) {
     throw new Error('Provide jobNumber or query to search Jobber jobs');
   }
 
-  const first = Math.min(Math.max(Number(limit) || 25, 1), 50);
+  const first = byNumber ? 50 : Math.min(Math.max(Number(limit) || 25, 1), 50);
   const data = await jobberGraphql(SEARCH_JOBS, { first, searchTerm });
   const nodes = data?.jobs?.nodes || [];
 
@@ -218,22 +222,7 @@ export async function searchJobs({ jobNumber, query, limit = 25 } = {}) {
     status: j.jobStatus,
   }));
 
-  // If searching by job number, prefer exact / numeric matches first
-  if (jobNumber != null && String(jobNumber).trim() !== '') {
-    const target = String(jobNumber).trim();
-    jobs = jobs
-      .filter(
-        (j) =>
-          String(j.jobNumber) === target ||
-          String(j.jobNumber).includes(target) ||
-          String(j.title || '').includes(target)
-      )
-      .sort((a, b) => {
-        const aExact = String(a.jobNumber) === target ? 0 : 1;
-        const bExact = String(b.jobNumber) === target ? 0 : 1;
-        return aExact - bExact;
-      });
-  }
+  if (byNumber) jobs = jobsWithExactNumber(jobs, searchTerm);
 
   return jobs;
 }

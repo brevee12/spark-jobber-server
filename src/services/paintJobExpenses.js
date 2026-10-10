@@ -3,6 +3,8 @@
  * Post each bill as a Jobber expense on that job so job cost includes the paint.
  * "Job: 1 VEENSTRA PAINTING" on the invoice is the store account, not the job.
  * A PO that is not a 4–6 digit job number (SHOP, a client name) is skipped.
+ * Jobber numbers requests, quotes, invoices, and jobs separately. The PO is
+ * matched only to Job.jobNumber, never to a quote or invoice with the same digits.
  */
 
 import { getSherwinWilliamsBills } from './qbo.js';

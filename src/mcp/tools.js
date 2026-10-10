@@ -460,7 +460,7 @@ export const toolDefinitions = [
   {
     name: 'jobber_batch',
     description:
-      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create/delete expense, schedule_visit, list_products (price book), list_users (crew), day_schedule, set_visit_crew, reschedule_visit. For day-of crew changes prefer crew_schedule. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Does NOT write to QuickBooks.',
+      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create/delete expense, schedule_visit, list_products (price book), list_users (crew), day_schedule, set_visit_crew, reschedule_visit. For day-of crew changes prefer crew_schedule. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Job, quote, request, and invoice numbers are separate sequences; search_jobs jobNumber matches Job.jobNumber only. Does NOT write to QuickBooks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -928,7 +928,7 @@ export const toolDefinitions = [
   {
     name: 'post_paint_job_expenses',
     description:
-      'Post Sherwin-Williams QBO bills as Jobber expenses on the job named in PO#. The PO is the Jobber job number (for example 26086). POs like SHOP or a client name are skipped. Invoices already on the job are skipped. apply:false shows the plan; apply:true writes the expenses.',
+      'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. Invoices already on the job are skipped. apply:false shows the plan; apply:true writes the expenses.',
     inputSchema: {
       type: 'object',
       properties: {

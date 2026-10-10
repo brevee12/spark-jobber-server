@@ -69,6 +69,17 @@ export function resolveVisit(jobRef, visits) {
   if (byId.length === 1) return { visit: byId[0] };
   const num = ref.replace(/^#/, '');
   const byNumber = visits.filter((v) => String(v.jobNumber) === num);
+  if (/^\d+$/.test(num)) {
+    if (byNumber.length === 1) return { visit: byNumber[0] };
+    if (byNumber.length > 1) {
+      return {
+        problem: `"${jobRef}" matches ${byNumber.length} visits: ${byNumber
+          .map((v) => `#${v.jobNumber} ${v.clientName}`)
+          .join('; ')} — use the job number`,
+      };
+    }
+    return { notFound: true };
+  }
   if (byNumber.length === 1) return { visit: byNumber[0] };
   const hay = (v) => norm(`${v.clientName} ${v.jobTitle} ${v.title} ${v.address}`);
   const hits = visits.filter((v) => n && n.split(' ').every((w) => hay(v).includes(w)));
@@ -252,7 +263,10 @@ export async function runCrewSchedule(args = {}) {
         });
         results.push({ ...step, ok: true, startAt: r.startAt, endAt: r.endAt });
       } else if (step.kind === 'create_visit') {
-        const jobs = await searchJobs({ query: step.job, limit: 10 });
+        const ref = String(step.job || '').replace(/^#/, '').trim();
+        const jobs = /^\d+$/.test(ref)
+          ? await searchJobs({ jobNumber: ref, limit: 10 })
+          : await searchJobs({ query: step.job, limit: 10 });
         const active = jobs.filter((j) => !/archived|requires_invoicing|complete/i.test(String(j.status)));
         if (active.length !== 1) {
           results.push({

@@ -1,7 +1,7 @@
 /**
  * Run: node src/mcp/crewSchedule.test.js
  */
-import { planCrewChanges, resolveDate, resolvePerson } from './crewSchedule.js';
+import { planCrewChanges, resolveDate, resolvePerson, resolveVisit } from './crewSchedule.js';
 import { matchLineItemsToCatalog } from './quoteCatalog.js';
 
 function assert(cond, msg) {
@@ -24,6 +24,14 @@ assert(resolveDate('tomorrow', '2026-10-09') === '2026-10-10', 'tomorrow');
 assert(resolveDate('friday', '2026-10-07') === '2026-10-09', 'weekday ahead');
 assert(resolveDate('Friday', '2026-10-09') === '2026-10-09', 'weekday today');
 assert(resolvePerson('kevin', users).user?.id === 'U1', 'first name');
+{
+  const numbered = [
+    { id: 'A', jobNumber: 26085, clientName: 'Kevin Van Wyk', jobTitle: '', title: '', address: '' },
+    { id: 'B', jobNumber: 25999, clientName: 'Codi Prachar', jobTitle: 'Quote 26085', title: '', address: '' },
+  ];
+  assert(resolveVisit('26085', numbered).visit?.id === 'A', 'job number is not a quote number');
+  assert(resolveVisit('26085', [numbered[1]]).notFound === true, 'quote digits do not select a visit');
+}
 assert(/more than one/.test(resolvePerson('Veenstra', users).problem), 'ambiguous last name');
 
 // Add Tom to the church job; move Kevin there exclusively (comes off Horgen).
