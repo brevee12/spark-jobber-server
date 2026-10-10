@@ -243,3 +243,150 @@ export async function postPaintJobExpenses({ maxResults = 100, apply = false } =
     results,
   };
 }
+
+export function invoiceGallonTitle(docNumber, gallons) {
+  const base = `SW ${docNumber}`;
+  if (gallons == null || Number(gallons) === 0) return base;
+  return `${base} · ${formatGallons(gallons)} gal`;
+}
+
+export function invoiceGallonDescription(invoice) {
+  const items = (invoice.lines || [])
+    .filter((line) => line.gallons != null)
+    .slice(0, 8)
+    .map((line) => `${formatGallons(line.qty)} × ${String(line.size).toLowerCase()} ${line.description}`);
+  return [
+    invoice.gallons == null ? null : `Gallons: ${formatGallons(invoice.gallons)}`,
+    `Sherwin-Williams invoice ${invoice.docNumber}`,
+    invoice.jobNumber ? `Job ${invoice.jobNumber}` : null,
+    ...items,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Write gallon counts taken from Sherwin invoice text onto the Jobber job.
+ * `invoices` come from parseSherwinInvoiceText. A PO that is not a job
+ * number is skipped. An invoice already on the job is updated in place.
+ */
+export async function applySherwinInvoiceGallons({ invoices = [], apply = false } = {}) {
+  const jobCache = new Map();
+  const results = [];
+
+  for (const invoice of invoices) {
+    const jobNumber = invoice.jobNumber && /^\d{4,6}$/.test(String(invoice.jobNumber))
+      ? String(invoice.jobNumber)
+      : null;
+    const title = invoiceGallonTitle(invoice.docNumber, invoice.gallons);
+    const description = invoiceGallonDescription({ ...invoice, jobNumber });
+    const base = {
+      docNumber: invoice.docNumber,
+      date: invoice.date,
+      amount: invoice.amount,
+      po: invoice.po || null,
+      jobNumber,
+      gallons: invoice.gallons ?? null,
+      unknownLines: 0,
+      title,
+      description,
+    };
+
+    if (!jobNumber) {
+      results.push({
+        ...base,
+        action: 'skip',
+        reason: invoice.po ? `PO "${invoice.po}" is not a job number` : 'no PO#',
+      });
+      continue;
+    }
+    if (invoice.gallons == null) {
+      results.push({ ...base, action: 'skip', reason: 'no line items' });
+      continue;
+    }
+
+    if (!jobCache.has(jobNumber)) {
+      const found = await searchJobs({ jobNumber, limit: 10 });
+      jobCache.set(jobNumber, found.find((job) => String(job.jobNumber) === jobNumber) || null);
+    }
+    const job = jobCache.get(jobNumber);
+    if (!job) {
+      results.push({ ...base, action: 'skip', reason: `no Jobber job ${jobNumber}` });
+      continue;
+    }
+
+    const hits = await listExpenses({ searchTerm: String(invoice.docNumber), limit: 10 });
+    const existing = alreadyPosted(hits, invoice.docNumber) || null;
+    const onJob = { ...base, jobId: job.jobId, clientName: job.clientName || null };
+    const unchanged =
+      existing &&
+      existing.title === title &&
+      String(existing.description || '').startsWith(`Gallons: ${formatGallons(invoice.gallons)}`);
+
+    if (!apply) {
+      results.push({
+        ...onJob,
+        action: unchanged ? 'skip' : existing ? 'update' : 'create',
+        reason: unchanged ? 'already on the job' : undefined,
+        expenseId: existing?.id || null,
+      });
+      continue;
+    }
+
+    try {
+      if (existing && unchanged) {
+        results.push({ ...onJob, action: 'skip', reason: 'already on the job', expenseId: existing.id });
+      } else if (existing) {
+        const edited = await editExpense({ expenseId: existing.id, title, description });
+        results.push({ ...onJob, action: 'updated', expenseId: edited?.id || existing.id });
+      } else if (invoice.amount == null) {
+        results.push({ ...onJob, action: 'skip', reason: 'no amount to create' });
+      } else {
+        const created = await createExpense({
+          title,
+          description,
+          amount: Number(invoice.amount),
+          date: invoice.date ? `${invoice.date}T12:00:00Z` : new Date().toISOString(),
+          linkedJobId: job.jobId,
+        });
+        results.push({ ...onJob, action: 'created', expenseId: created?.id || null });
+      }
+    } catch (err) {
+      results.push({ ...onJob, action: 'error', reason: err.message });
+    }
+  }
+
+  const jobs = jobGallonTotals(results);
+  const notes = [];
+  if (apply) {
+    for (const job of jobs) {
+      if (job.gallons == null && !job.unknown) continue;
+      try {
+        notes.push({ jobNumber: job.jobNumber, noteId: await upsertGallonNote(job) });
+      } catch (err) {
+        notes.push({ jobNumber: job.jobNumber, error: err.message });
+      }
+    }
+  }
+
+  const count = (action) => results.filter((row) => row.action === action).length;
+  return {
+    apply,
+    invoices: invoices.length,
+    created: count('created'),
+    updated: count('updated'),
+    ready: count('create'),
+    toUpdate: count('update'),
+    skipped: count('skip'),
+    errors: count('error'),
+    gallons: jobs.reduce((sum, job) => sum + (job.gallons || 0), 0),
+    jobs: jobs.map((job) => ({
+      jobNumber: job.jobNumber,
+      clientName: job.clientName,
+      gallons: job.gallons,
+      unknown: job.unknown,
+    })),
+    notes,
+    results,
+  };
+}

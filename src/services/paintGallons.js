@@ -15,8 +15,8 @@ const MAX_CANS = 12;
 export function formatGallons(gallons) {
   const n = Number(gallons);
   if (!Number.isFinite(n)) return '';
-  const rounded = Math.round(n * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toFixed(2).replace(/\.?0+$/, '');
 }
 
 export function productNumber(description) {

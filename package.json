@@ -2,7 +2,7 @@
   "type": "module",
   "scripts": {
     "start": "node jobber-mcp.js",
-    "test": "node src/services/bankStaging.test.js && node src/services/bookkeepingBrief.test.js && node src/services/qboPostedMatch.test.js && node src/services/qboCategorySuggest.test.js && node src/services/simplefin.test.js && node src/lib/durableTokens.test.js && node src/mcp/quoteMeeting.test.js && node src/mcp/crewSchedule.test.js && node src/services/paintJobExpenses.test.js && node src/services/paintGallons.test.js && node src/mcp/jobberNumbers.test.js"
+    "test": "node src/services/bankStaging.test.js && node src/services/bookkeepingBrief.test.js && node src/services/qboPostedMatch.test.js && node src/services/qboCategorySuggest.test.js && node src/services/simplefin.test.js && node src/lib/durableTokens.test.js && node src/mcp/quoteMeeting.test.js && node src/mcp/crewSchedule.test.js && node src/services/paintJobExpenses.test.js && node src/services/paintGallons.test.js && node src/services/sherwinInvoices.test.js && node src/mcp/jobberNumbers.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
