@@ -178,6 +178,93 @@ export async function listExpenses({ searchTerm, limit = 20 } = {}) {
   }));
 }
 
+const EDIT_EXPENSE = `
+  mutation EditExpense($expenseId: EncodedId!, $input: ExpenseEditInput!) {
+    expenseEdit(expenseId: $expenseId, input: $input) {
+      expense { id title description total date }
+      userErrors { message path }
+    }
+  }
+`;
+
+export async function editExpense({ expenseId, title, description }) {
+  if (!expenseId) throw new Error('expenseId is required');
+  const input = {};
+  if (title != null) input.title = title;
+  if (description != null) input.description = description;
+  const data = await jobberGraphql(EDIT_EXPENSE, { expenseId: String(expenseId), input });
+  const result = data?.expenseEdit;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return result?.expense || null;
+}
+
+const JOB_NOTES = `
+  query JobNotes($id: EncodedId!) {
+    job(id: $id) {
+      notes(first: 30) {
+        nodes {
+          __typename
+          ... on JobNote { id message pinned }
+        }
+      }
+    }
+  }
+`;
+
+export async function listJobNotes(jobId) {
+  const data = await jobberGraphql(JOB_NOTES, { id: String(jobId) });
+  return (data?.job?.notes?.nodes || [])
+    .filter((note) => note?.id)
+    .map((note) => ({
+      id: note.id,
+      message: note.message || '',
+      pinned: Boolean(note.pinned),
+    }));
+}
+
+const CREATE_JOB_NOTE = `
+  mutation CreateJobNote($jobId: EncodedId!, $input: JobCreateNoteInput!) {
+    jobCreateNote(jobId: $jobId, input: $input) {
+      jobNote { id message pinned }
+      userErrors { message path }
+    }
+  }
+`;
+
+export async function createJobNote({ jobId, message, pinned = true }) {
+  const data = await jobberGraphql(CREATE_JOB_NOTE, {
+    jobId: String(jobId),
+    input: { message, pinned },
+  });
+  const result = data?.jobCreateNote;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return result?.jobNote || null;
+}
+
+const EDIT_JOB_NOTE = `
+  mutation EditJobNote($input: JobEditNoteInput!) {
+    jobEditNote(input: $input) {
+      jobNote { id message pinned }
+      userErrors { message path }
+    }
+  }
+`;
+
+export async function editJobNote({ noteId, message, pinned = true }) {
+  const data = await jobberGraphql(EDIT_JOB_NOTE, {
+    input: { noteId: String(noteId), message, pinned },
+  });
+  const result = data?.jobEditNote;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return result?.jobNote || null;
+}
+
 const SEARCH_JOBS = `
   query SearchJobs($first: Int!, $searchTerm: String) {
     jobs(first: $first, searchTerm: $searchTerm) {

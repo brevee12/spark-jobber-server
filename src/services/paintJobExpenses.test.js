@@ -45,5 +45,26 @@ assertEq(
   'already on the job',
   'duplicate skipped'
 );
+assertEq(
+  planPaintBill(
+    { ...bill, gallons: 3, unknownLines: 0 },
+    { job, existing: { id: 'E1', description: 'Sherwin-Williams invoice' } }
+  ).action,
+  'update',
+  'existing expense gains its gallon count'
+);
+assertEq(
+  planPaintBill(
+    { ...bill, gallons: 3, unknownLines: 0 },
+    { job, existing: { id: 'E1', description: 'Gallons: 3\nSherwin-Williams invoice' } }
+  ).action,
+  'skip',
+  'gallon line already on the expense'
+);
+assertEq(
+  planPaintBill({ ...bill, gallons: 3, unknownLines: 0 }, { job }).title,
+  'SW 89673112820926 · 3 gal',
+  'title shows gallons'
+);
 
 console.log('paintJobExpenses.test.js: all assertions passed');
