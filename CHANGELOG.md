@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Paint gallons on the job.** Each Sherwin expense notes how many gallons were bought, and a pinned job note shows the total. A count is kept only when the same product has an exact one-gallon price; a 5-gallon price is not guessed.
 - Scheduled bookkeeping brief via GitHub Actions (Tue 11:59 PM / Fri 3:30 PM Chicago) — no Cursor tokens per run.
 - `CHANGELOG.md` and the QuickBooks posting log.
 

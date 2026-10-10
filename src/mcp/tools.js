@@ -928,7 +928,7 @@ export const toolDefinitions = [
   {
     name: 'post_paint_job_expenses',
     description:
-      'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. Invoices already on the job are skipped. apply:false shows the plan; apply:true writes the expenses.',
+      'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought, and a pinned job note shows the total gallons. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and the gallon notes.',
     inputSchema: {
       type: 'object',
       properties: {
