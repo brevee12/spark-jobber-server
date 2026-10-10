@@ -482,15 +482,15 @@ export async function qboQuery(sql) {
 
 function parsePoFromNote(note = '') {
   const text = String(note || '');
+  // Sherwin PRO+ puts the Jobber job number in PO#. "Job: 1 VEENSTRA PAINTING"
+  // is the store account, not the job.
   const po =
+    text.match(/PO#:\s*([A-Za-z0-9-]+)/i)?.[1] ||
     text.match(/PO[#:\s-]*([A-Za-z0-9-]+)/i)?.[1] ||
     text.match(/P\.?O\.?\s*#?\s*([A-Za-z0-9-]+)/i)?.[1] ||
     null;
-  const job =
-    text.match(/Job[#:\s-]*([A-Za-z0-9-]+)/i)?.[1] ||
-    text.match(/Jobber[#:\s-]*([A-Za-z0-9-]+)/i)?.[1] ||
-    null;
-  return { poNumber: po, jobNumber: job };
+  const jobNumber = po && /^\d{4,6}$/.test(po) ? po : null;
+  return { poNumber: po, jobNumber };
 }
 
 /**
