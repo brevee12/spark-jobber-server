@@ -39,7 +39,7 @@ import {
 import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
-import { postPaintJobExpenses } from '../services/paintJobExpenses.js';
+import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -926,6 +926,24 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'apply_sherwin_invoice_gallons',
+    description:
+      'Write gallon counts from Sherwin invoice text onto the matching Jobber jobs. Each invoice needs docNumber, jobNumber (the PO), date, amount, gallons, and lines (qty, size, description, gallons). A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated. A pinned job note shows the total gallons. apply:false plans; apply:true writes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apply: {
+          type: 'boolean',
+          description: 'false (default) = plan only; true = update Jobber expenses and the job note',
+        },
+        invoices: {
+          type: 'array',
+          description: 'Parsed Sherwin invoices with docNumber, jobNumber, date, amount, gallons, and lines',
+        },
+      },
+    },
+  },
+  {
     name: 'post_paint_job_expenses',
     description:
       'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought, and a pinned job note shows the total gallons. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and the gallon notes.',
@@ -966,6 +984,13 @@ export async function callTool(name, args = {}) {
       case 'post_paint_job_expenses': {
         return ok(await postPaintJobExpenses({
           maxResults: args.maxResults,
+          apply: Boolean(args.apply),
+        }));
+      }
+
+      case 'apply_sherwin_invoice_gallons': {
+        return ok(await applySherwinInvoiceGallons({
+          invoices: args.invoices,
           apply: Boolean(args.apply),
         }));
       }
