@@ -39,6 +39,7 @@ import {
 import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
+import { postPaintJobExpenses } from '../services/paintJobExpenses.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -924,6 +925,24 @@ export const toolDefinitions = [
       },
     },
   },
+  {
+    name: 'post_paint_job_expenses',
+    description:
+      'Post Sherwin-Williams QBO bills as Jobber expenses on the job named in PO#. The PO is the Jobber job number (for example 26086). POs like SHOP or a client name are skipped. Invoices already on the job are skipped. apply:false shows the plan; apply:true writes the expenses.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apply: {
+          type: 'boolean',
+          description: 'false (default) = plan only; true = create the Jobber expenses',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'How many recent Sherwin bills to consider (default 100)',
+        },
+      },
+    },
+  },
 ];
 
 /** Dispatch a tool call by name */
@@ -942,6 +961,13 @@ export async function callTool(name, args = {}) {
       case 'quote_meeting': {
         const meeting = await runQuoteMeeting(args);
         return ok(meeting);
+      }
+
+      case 'post_paint_job_expenses': {
+        return ok(await postPaintJobExpenses({
+          maxResults: args.maxResults,
+          apply: Boolean(args.apply),
+        }));
       }
 
       case 'bookkeeping_review': {

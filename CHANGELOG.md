@@ -16,6 +16,10 @@ merge date.
 - Scheduled bookkeeping brief via GitHub Actions (Tue 11:59 PM / Fri 3:30 PM Chicago) — no Cursor tokens per run.
 - `CHANGELOG.md` and the QuickBooks posting log.
 
+## 2026-10-10
+
+- **Paint bills go on the Jobber job.** Sherwin-Williams invoices use PO# as the job number. Those bills are posted as Jobber expenses on that job. SHOP and name POs are skipped, and an invoice already on the job is not posted again. [#25](https://github.com/brevee12/spark-jobber-server/pull/25)
+
 ## 2026-10-09
 
 - **Client meetings.** Can read a request and create or reschedule its assessment (on-site meeting) with a time and crew. [#24](https://github.com/brevee12/spark-jobber-server/pull/24)

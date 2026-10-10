@@ -145,6 +145,38 @@ export async function createExpense({ amount, description, title, date, linkedJo
   return result.expense;
 }
 
+const LIST_EXPENSES = `
+  query Expenses($first: Int!, $searchTerm: String) {
+    expenses(first: $first, searchTerm: $searchTerm) {
+      nodes {
+        id
+        title
+        description
+        total
+        date
+        linkedJob { id jobNumber }
+      }
+    }
+  }
+`;
+
+export async function listExpenses({ searchTerm, limit = 20 } = {}) {
+  const first = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const data = await jobberGraphql(LIST_EXPENSES, {
+    first,
+    searchTerm: searchTerm ? String(searchTerm) : null,
+  });
+  return (data?.expenses?.nodes || []).map((e) => ({
+    id: e.id,
+    title: e.title,
+    description: e.description || '',
+    total: e.total,
+    date: e.date,
+    jobId: e.linkedJob?.id || null,
+    jobNumber: e.linkedJob?.jobNumber || null,
+  }));
+}
+
 const SEARCH_JOBS = `
   query SearchJobs($first: Int!, $searchTerm: String) {
     jobs(first: $first, searchTerm: $searchTerm) {
