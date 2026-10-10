@@ -15,10 +15,10 @@ merge date.
 
 - Scheduled bookkeeping brief via GitHub Actions (Tue 11:59 PM / Fri 3:30 PM Chicago) — no Cursor tokens per run.
 - `CHANGELOG.md` and the QuickBooks posting log.
-- **Job numbers stay job numbers.** Jobber numbers requests, quotes, invoices, and jobs independently. A job lookup matches `Job.jobNumber` exactly, so a quote or invoice with the same digits is left alone. Paint POs still post to that job.
 
 ## 2026-10-10
 
+- **Job numbers stay job numbers.** Jobber numbers requests, quotes, invoices, and jobs independently. A job lookup matches `Job.jobNumber` exactly, so a quote or invoice with the same digits is left alone. Paint POs still post to that job. [#26](https://github.com/brevee12/spark-jobber-server/pull/26)
 - **Paint bills go on the Jobber job.** Sherwin-Williams invoices use PO# as the job number. Those bills are posted as Jobber expenses on that job. SHOP and name POs are skipped, and an invoice already on the job is not posted again. [#25](https://github.com/brevee12/spark-jobber-server/pull/25)
 
 ## 2026-10-09
