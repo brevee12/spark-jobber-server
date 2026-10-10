@@ -41,11 +41,47 @@ DATE: 10/01/2026
 02 of 02
 `;
 
+const maasdam = `
+ACCOUNT: 1
+INVOICE
+No. 10000000000001
+PO# 26095
+DATE: 10/01/2026
+6502-05669 5 GAL B42B81 WB DF FL BLACK 10 24.45 244.50
+CHARGE $261.62
+ACCOUNT: 1
+INVOICE
+No. 10000000000002
+PO# 26095
+DATE: 10/05/2026
+6502-05669 5 GAL B42B81 WB DF FL BLACK 5 24.45 122.25
+CHARGE $130.81
+ACCOUNT: 1
+INVOICE
+No. 10000000000003
+PO# 26095
+DATE: 09/29/2026
+6512-87252 GALLON A87W1351 SPR INT SA EXTRA 4 47.93 191.72
+6512-52579 5 GAL B28W8030 PVA INT PRMR WHITE 5 14.34 71.70
+CHARGE $281.86
+`;
+const maasdamInvoices = parseSherwinInvoiceText(maasdam);
+const dryfall = maasdamInvoices
+  .flatMap((invoice) => invoice.lines)
+  .filter((line) => /DF FL/.test(line.description))
+  .reduce((sum, line) => sum + line.gallons, 0);
+const superpaint = maasdamInvoices
+  .flatMap((invoice) => invoice.lines)
+  .filter((line) => /SPR INT/.test(line.description))
+  .reduce((sum, line) => sum + line.gallons, 0);
+assertEq(dryfall, 15, 'Maasdam dryfall is 15 gallons');
+assertEq(superpaint, 4, 'Maasdam superpaint is 4 gallons');
+
 const invoices = parseSherwinInvoiceText(text);
 assertEq(invoices.length, 3, 'three invoices');
 const job = invoices.find((invoice) => invoice.docNumber === '02424154851026');
 assertEq(job.jobNumber, '26095', 'po is the job');
-assertEq(job.gallons, 50, 'ten 5-gallon cans');
+assertEq(job.gallons, 10, 'qty on a 5 GAL line is already gallons');
 assertEq(job.date, '2026-10-01', 'date');
 assertEq(job.amount, 261.62, 'charge');
 assertEq(job.lines.length, 1, 'page 2 adds no lines');
