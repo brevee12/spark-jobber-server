@@ -85,6 +85,12 @@ Usually **empty**. When used: short, first person, plain — e.g.
 
 Never put internal meeting notes in the message.
 
+## Numbers
+
+Jobber numbers requests, quotes, invoices, and jobs on separate sequences.
+Quote #26085 is not job #26085. Look up each record on its own number.
+A Sherwin PO is a job number and is matched only to that job.
+
 ## Deposit
 
 20% of total on larger exterior jobs when Brennan mentions a deposit

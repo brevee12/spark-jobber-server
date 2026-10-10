@@ -15,6 +15,7 @@ merge date.
 
 - Scheduled bookkeeping brief via GitHub Actions (Tue 11:59 PM / Fri 3:30 PM Chicago) — no Cursor tokens per run.
 - `CHANGELOG.md` and the QuickBooks posting log.
+- **Job numbers stay job numbers.** Jobber numbers requests, quotes, invoices, and jobs independently. A job lookup matches `Job.jobNumber` exactly, so a quote or invoice with the same digits is left alone. Paint POs still post to that job.
 
 ## 2026-10-10
 
