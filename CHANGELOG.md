@@ -18,8 +18,8 @@ merge date.
 
 ## 2026-10-10
 
-- **Sherwin invoice gallons.** Quantity and can size from the Sherwin invoice replace the guessed gallon count. A 5-gallon can counts as 5. Returns reduce the total. Brushes and other supplies stay at zero gallons. [#29](https://github.com/brevee12/spark-jobber-server/pull/29)
-- **Gallon qty was counted twice.** On a Sherwin invoice, the quantity of a 5-gallon item is already in gallons. Qty 10 is 10 gallons, not 50.
+- **Sherwin invoice gallons.** Quantity from the Sherwin invoice replaces the guessed gallon count. The quantity of a 5-gallon item is already in gallons. Returns reduce the total. Brushes and other supplies stay at zero gallons. [#29](https://github.com/brevee12/spark-jobber-server/pull/29)
+- **Gallon qty was counted twice.** Qty 10 of a 5-gallon item is 10 gallons. Jason Maasdam is 15 gallons of dryfall, 4 of Superpaint, and 5 of PVA. [#30](https://github.com/brevee12/spark-jobber-server/pull/30)
 - **Paint gallons on the job.** Each Sherwin expense notes how many gallons were bought, and a pinned job note shows the total. A count is kept only when the same product has an exact one-gallon price; a 5-gallon price is not guessed. [#28](https://github.com/brevee12/spark-jobber-server/pull/28)
 - **Job numbers stay job numbers.** Jobber numbers requests, quotes, invoices, and jobs independently. A job lookup matches `Job.jobNumber` exactly, so a quote or invoice with the same digits is left alone. Paint POs still post to that job. [#26](https://github.com/brevee12/spark-jobber-server/pull/26)
 - **Paint bills go on the Jobber job.** Sherwin-Williams invoices use PO# as the job number. Those bills are posted as Jobber expenses on that job. SHOP and name POs are skipped, and an invoice already on the job is not posted again. [#25](https://github.com/brevee12/spark-jobber-server/pull/25)
