@@ -25,6 +25,9 @@ import {
   createJob,
   createInvoice,
   deleteJobLineItems,
+  listJobNotes,
+  createJobNote,
+  editJobNote,
 } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
@@ -93,6 +96,9 @@ const JOBBER_OPS = [
   'edit_assessment',
   'create_job',
   'delete_job_line_items',
+  'list_job_notes',
+  'create_job_note',
+  'edit_job_note',
   'create_invoice',
   'schema',
 ];
@@ -281,6 +287,24 @@ async function runJobberAction(action = {}) {
       return deleteJobLineItems({
         jobId: action.jobId || action.id,
         lineItemIds: action.lineItemIds,
+      });
+    }
+    case 'list_job_notes': {
+      const notes = await listJobNotes(action.jobId || action.id);
+      return { count: notes.length, notes };
+    }
+    case 'create_job_note': {
+      return createJobNote({
+        jobId: action.jobId || action.id,
+        message: action.message,
+        pinned: action.pinned,
+      });
+    }
+    case 'edit_job_note': {
+      return editJobNote({
+        noteId: action.noteId || action.id,
+        message: action.message,
+        pinned: action.pinned,
       });
     }
     case 'create_invoice': {
