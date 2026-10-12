@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Draft invoices.** Can create a Jobber invoice and leave it unsent. A request can be turned into a job first, without Jobber generating its own invoice. [#31](https://github.com/brevee12/spark-jobber-server/pull/31)
 - Scheduled bookkeeping brief via GitHub Actions (Tue 11:59 PM / Fri 3:30 PM Chicago) — no Cursor tokens per run.
 - `CHANGELOG.md` and the QuickBooks posting log.
 
