@@ -2091,3 +2091,197 @@ export async function editAssessment({
   }
   return mapAssessment(result?.assessment);
 }
+
+function mutationError(result, label) {
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  if (!result) throw new Error(`${label} returned nothing`);
+  return result;
+}
+
+/**
+ * One invoice line. Taxable defaults off so a "no tax" line stays at its price.
+ */
+export function buildInvoiceLine({
+  name = '1 Labor',
+  description,
+  quantity = 1,
+  unitPrice,
+  taxable = false,
+  productOrServiceId,
+} = {}) {
+  if (unitPrice == null || unitPrice === '') throw new Error('unitPrice is required');
+  const price = Number(unitPrice);
+  if (!Number.isFinite(price)) throw new Error('unitPrice must be a number');
+  const row = {
+    name: String(name || '1 Labor'),
+    quantity: quantity != null ? Number(quantity) : 1,
+    unitPrice: price,
+    taxable: Boolean(taxable),
+  };
+  if (description) row.description = String(description);
+  if (productOrServiceId) row.productOrServiceId = String(productOrServiceId);
+  return row;
+}
+
+/** InvoiceCreateInput. markSent stays false unless the caller is sending it. */
+export function buildInvoiceCreateInput({
+  clientId,
+  propertyId,
+  jobId,
+  subject,
+  lineItems = [],
+  markSent = false,
+  invoiceNet = 0,
+  issuedDate,
+} = {}) {
+  const encodedClientId = toJobberEncodedId('Client', clientId);
+  if (!encodedClientId) throw new Error('clientId is required');
+  const lines = (Array.isArray(lineItems) ? lineItems : []).filter(Boolean).map((item) =>
+    item.name && item.unitPrice != null && item.quantity != null && typeof item.taxable === 'boolean'
+      ? item
+      : buildInvoiceLine(item)
+  );
+  if (!lines.length) throw new Error('At least one line item is required');
+
+  const input = {
+    clientId: encodedClientId,
+    markSent: Boolean(markSent),
+    dueDetails: { invoiceNet: Number(invoiceNet) },
+    tax: { taxCalculationMethod: 'EXCLUSIVE' },
+    lineItems: lines,
+  };
+  if (subject) input.subject = String(subject);
+  if (issuedDate) input.issuedDate = issuedDate;
+  const encodedPropertyId = toJobberEncodedId('Property', propertyId);
+  if (encodedPropertyId) input.propertyId = encodedPropertyId;
+  const encodedJobId = toJobberEncodedId('Job', jobId);
+  if (encodedJobId) input.jobId = encodedJobId;
+  return input;
+}
+
+const CREATE_JOB = `
+  mutation CreateJob($input: JobCreateAttributes!) {
+    jobCreate(input: $input) {
+      job {
+        id
+        jobNumber
+        jobStatus
+        title
+        request { id requestStatus }
+      }
+      userErrors { message path }
+    }
+  }
+`;
+
+const CREATE_INVOICE = `
+  mutation CreateInvoice($input: InvoiceCreateInput!) {
+    invoiceCreate(input: $input) {
+      invoice {
+        id
+        invoiceNumber
+        invoiceStatus
+        subject
+        issuedDate
+        dueDate
+        jobberWebUri
+        amounts { subtotal taxAmount total invoiceBalance }
+        lineItems(first: 20) {
+          nodes { name description quantity unitPrice totalPrice taxable }
+        }
+        client { id name }
+        jobs(first: 5) { nodes { id jobNumber } }
+      }
+      userErrors { message path }
+    }
+  }
+`;
+
+function mapInvoice(invoice) {
+  if (!invoice) return null;
+  return {
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceStatus: invoice.invoiceStatus,
+    subject: invoice.subject,
+    issuedDate: invoice.issuedDate,
+    dueDate: invoice.dueDate,
+    jobberWebUri: invoice.jobberWebUri,
+    amounts: invoice.amounts || null,
+    client: invoice.client || null,
+    jobs: invoice.jobs?.nodes || [],
+    lineItems: invoice.lineItems?.nodes || [],
+  };
+}
+
+/**
+ * Create a one-off job, optionally from a request (that converts the request).
+ * Invoicing is NEVER so Jobber does not generate or send its own invoice.
+ */
+export async function createJob({
+  propertyId,
+  requestId,
+  title,
+  lineItems = [],
+  invoicingType = 'FIXED_PRICE',
+  invoicingSchedule = 'NEVER',
+  createVisits = false,
+} = {}) {
+  const encodedPropertyId = toJobberEncodedId('Property', propertyId);
+  if (!encodedPropertyId) throw new Error('propertyId is required');
+
+  const lines = (Array.isArray(lineItems) ? lineItems : []).filter(Boolean).map((item) => {
+    const row = {
+      name: item.name || '1 Labor',
+      quantity: item.quantity != null ? Number(item.quantity) : 1,
+      unitPrice: Number(item.unitPrice),
+      taxable: typeof item.taxable === 'boolean' ? item.taxable : false,
+      saveToProductsAndServices: false,
+    };
+    if (item.description) row.description = String(item.description);
+    if (item.productOrServiceId) row.productOrServiceId = String(item.productOrServiceId);
+    if (item.category) row.category = String(item.category);
+    return row;
+  });
+
+  const input = {
+    propertyId: encodedPropertyId,
+    invoicing: {
+      invoicingType,
+      invoicingSchedule,
+    },
+    scheduling: {
+      createVisits: Boolean(createVisits),
+      notifyTeam: false,
+    },
+  };
+  if (title) input.title = String(title);
+  if (lines.length) input.lineItems = lines;
+  const encodedRequestId = toJobberEncodedId('Request', requestId);
+  if (encodedRequestId) input.requestId = encodedRequestId;
+
+  const data = await jobberGraphql(CREATE_JOB, { input });
+  const result = mutationError(data?.jobCreate, 'jobCreate');
+  if (!result.job?.id) throw new Error('jobCreate returned no job');
+  return {
+    id: result.job.id,
+    jobNumber: result.job.jobNumber,
+    jobStatus: result.job.jobStatus,
+    title: result.job.title,
+    request: result.job.request || null,
+  };
+}
+
+/**
+ * Create an invoice and leave it a draft unless markSent is true.
+ */
+export async function createInvoice(args = {}) {
+  const input = buildInvoiceCreateInput(args);
+  const data = await jobberGraphql(CREATE_INVOICE, { input });
+  const result = mutationError(data?.invoiceCreate, 'invoiceCreate');
+  const invoice = mapInvoice(result.invoice);
+  if (!invoice?.id) throw new Error('invoiceCreate returned no invoice');
+  return invoice;
+}

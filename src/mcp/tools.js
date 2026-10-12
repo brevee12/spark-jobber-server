@@ -22,6 +22,8 @@ import {
   searchQuotes,
   searchRequests,
   editQuote,
+  createJob,
+  createInvoice,
 } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
@@ -88,6 +90,8 @@ const JOBBER_OPS = [
   'get_request',
   'create_assessment',
   'edit_assessment',
+  'create_job',
+  'create_invoice',
   'schema',
 ];
 
@@ -256,6 +260,29 @@ async function runJobberAction(action = {}) {
         assignedUserIds: action.assignedUserIds,
         title: action.title,
         instructions: action.instructions,
+      });
+    }
+    case 'create_job': {
+      return createJob({
+        propertyId: action.propertyId,
+        requestId: action.requestId,
+        title: action.title,
+        lineItems: action.lineItems,
+        invoicingType: action.invoicingType,
+        invoicingSchedule: action.invoicingSchedule || 'NEVER',
+        createVisits: action.createVisits,
+      });
+    }
+    case 'create_invoice': {
+      return createInvoice({
+        clientId: action.clientId,
+        propertyId: action.propertyId,
+        jobId: action.jobId,
+        subject: action.subject || action.title,
+        lineItems: action.lineItems,
+        markSent: action.markSent,
+        invoiceNet: action.invoiceNet,
+        issuedDate: action.issuedDate,
       });
     }
     case 'schema': {
@@ -460,7 +487,7 @@ export const toolDefinitions = [
   {
     name: 'jobber_batch',
     description:
-      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create/delete expense, schedule_visit, list_products (price book), list_users (crew), day_schedule, set_visit_crew, reschedule_visit. For day-of crew changes prefer crew_schedule. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Job, quote, request, and invoice numbers are separate sequences; search_jobs jobNumber matches Job.jobNumber only. Does NOT write to QuickBooks.',
+      'PREFERRED Jobber tool. ONE Allow for many ops: search_clients, search_quotes, search_requests, search_jobs, search_invoices, get_job/invoice/quote, create_client, create_quote, update_quote, create_job, create_invoice (draft unless markSent), create/delete expense, schedule_visit, list_products (price book), list_users (crew), day_schedule, set_visit_crew, reschedule_visit. For day-of crew changes prefer crew_schedule. For voice quote meetings prefer quote_meeting (plans client+quote create/update). create_client and create_quote ARE supported — do not claim they are missing. Job, quote, request, and invoice numbers are separate sequences; search_jobs jobNumber matches Job.jobNumber only. Does NOT write to QuickBooks.',
     inputSchema: {
       type: 'object',
       properties: {
