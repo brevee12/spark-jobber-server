@@ -1653,6 +1653,7 @@ const GET_QUOTE = `
           unitPrice
           totalPrice
           taxable
+          optional
         }
       }
       jobs(first: 10) {
@@ -2170,7 +2171,20 @@ const CREATE_JOB = `
         jobStatus
         title
         request { id requestStatus }
+        quote { id quoteNumber quoteStatus }
+        lineItems(first: 30) {
+          nodes { id name description quantity unitPrice totalPrice taxable }
+        }
       }
+      userErrors { message path }
+    }
+  }
+`;
+
+const DELETE_JOB_LINE_ITEMS = `
+  mutation DeleteJobLineItems($jobId: EncodedId!, $input: JobDeleteLineItemsInput!) {
+    jobDeleteLineItems(jobId: $jobId, input: $input) {
+      job { id }
       userErrors { message path }
     }
   }
@@ -2217,14 +2231,16 @@ function mapInvoice(invoice) {
 }
 
 /**
- * Create a one-off job, optionally from a request (that converts the request).
- * Invoicing is NEVER so Jobber does not generate or send its own invoice.
+ * Job create payload. Passing quoteId converts that quote onto this job.
+ * Invoicing defaults to NEVER so Jobber does not generate its own invoice.
  */
-export async function createJob({
+export function buildJobCreateInput({
   propertyId,
   requestId,
+  quoteId,
   title,
   lineItems = [],
+  notes,
   invoicingType = 'FIXED_PRICE',
   invoicingSchedule = 'NEVER',
   createVisits = false,
@@ -2242,6 +2258,7 @@ export async function createJob({
     };
     if (item.description) row.description = String(item.description);
     if (item.productOrServiceId) row.productOrServiceId = String(item.productOrServiceId);
+    if (item.quoteLineItemId) row.quoteLineItemId = String(item.quoteLineItemId);
     if (item.category) row.category = String(item.category);
     return row;
   });
@@ -2261,7 +2278,19 @@ export async function createJob({
   if (lines.length) input.lineItems = lines;
   const encodedRequestId = toJobberEncodedId('Request', requestId);
   if (encodedRequestId) input.requestId = encodedRequestId;
+  const encodedQuoteId = toJobberEncodedId('Quote', quoteId);
+  if (encodedQuoteId) input.quoteId = encodedQuoteId;
+  if (Array.isArray(notes) && notes.length) {
+    input.notes = notes.filter((n) => n && n.message).map((n) => ({
+      message: String(n.message),
+      pinned: n.pinned !== false,
+    }));
+  }
+  return input;
+}
 
+export async function createJob(args = {}) {
+  const input = buildJobCreateInput(args);
   const data = await jobberGraphql(CREATE_JOB, { input });
   const result = mutationError(data?.jobCreate, 'jobCreate');
   if (!result.job?.id) throw new Error('jobCreate returned no job');
@@ -2271,7 +2300,21 @@ export async function createJob({
     jobStatus: result.job.jobStatus,
     title: result.job.title,
     request: result.job.request || null,
+    quote: result.job.quote || null,
+    lineItems: result.job.lineItems?.nodes || [],
   };
+}
+
+export async function deleteJobLineItems({ jobId, lineItemIds } = {}) {
+  if (!jobId) throw new Error('jobId is required');
+  const ids = (Array.isArray(lineItemIds) ? lineItemIds : []).filter(Boolean).map(String);
+  if (!ids.length) throw new Error('lineItemIds is required');
+  const data = await jobberGraphql(DELETE_JOB_LINE_ITEMS, {
+    jobId: String(jobId),
+    input: { lineItemIds: ids },
+  });
+  const result = mutationError(data?.jobDeleteLineItems, 'jobDeleteLineItems');
+  return { jobId: result.job?.id || jobId, deleted: ids };
 }
 
 /**
