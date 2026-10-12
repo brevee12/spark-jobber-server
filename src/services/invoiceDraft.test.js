@@ -1,7 +1,7 @@
 /**
  * Run: node src/services/invoiceDraft.test.js
  */
-import { buildInvoiceCreateInput, buildInvoiceLine } from '../../jobber/client.js';
+import { buildInvoiceCreateInput, buildInvoiceLine, buildJobCreateInput } from '../../jobber/client.js';
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -38,5 +38,23 @@ try {
   threw = /line item/i.test(err.message);
 }
 assert(threw, 'refuses an invoice with no lines');
+
+const job = buildJobCreateInput({
+  propertyId: 'Z2lkOi8vSm9iYmVyL1Byb3BlcnR5LzE=',
+  quoteId: 'Z2lkOi8vSm9iYmVyL1F1b3RlLzE=',
+  title: 'Exterior Repaint',
+  lineItems: [{
+    name: '1 Labor',
+    quantity: 160,
+    unitPrice: 60,
+    taxable: true,
+    quoteLineItemId: 'QL1',
+  }],
+  notes: [{ message: 'Hold until next year.', pinned: true }],
+});
+assert(job.quoteId === 'Z2lkOi8vSm9iYmVyL1F1b3RlLzE=', 'quote converts onto the job');
+assert(job.scheduling.createVisits === false, 'no visit until one is scheduled');
+assert(job.lineItems[0].quoteLineItemId === 'QL1', 'quote line is linked');
+assert(job.notes[0].message.includes('next year'), 'note is kept');
 
 console.log('invoiceDraft.test.js: all assertions passed');
