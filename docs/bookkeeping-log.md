@@ -10,6 +10,20 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-10-13 — Brief approvals (all except checks #2 and #3)
+
+| QBO id | Type | Date | Account | Category | Amount | Brief # |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18614 | Credit Card Credit | 2026-10-01 | CC-Capital One (4558) | Job Supplies | 25.12 | 18 WAL-MART #0751 |
+| 18612 | Credit Card Credit | 2026-10-07 | CC-Capital One Spark (7296) | Car & Truck | 1.00 | 23 RBTfuelmanusa |
+| 18613 | Credit Card Credit | 2026-10-07 | CC-Capital One Spark (7296) | Car & Truck | 1.00 | 24 RBTfuelmanusa |
+
+Banking: **Match** those three credit feed lines to these records. Do not add them again.
+
+Checks #2 (1485, $800) and #3 (1483, $1,285) were left unposted for manual entry.
+
+The other approved lines are feed-only. Clear them in the QBO Banking feed. Do not post them again: #1 and #4 match existing Intuit payroll tax payments; #5–17 and #19–22 are card charges.
+
 ## 2026-10-08 — FasTool refund (brief #21)
 
 | QBO id | Type | Date | Account | Category | Amount | Bank line |
