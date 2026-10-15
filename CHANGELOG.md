@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Sherwin invoice PDF on the job.** The evening import attaches each new invoice PDF to a note on the Jobber job in PO#. The note names the invoice. A job that already has a note for that invoice is left alone. SHOP and other non-job POs get no note. If the PDF link is missing or the note does not attach, the expense still stays and the run still finishes. [#36](https://github.com/brevee12/spark-jobber-server/pull/36)
 - **Sherwin emails into Jobber.** A daily run reads invoice emails from the Resend inbox and posts each one, with gallons, on the job in PO#. Each expense lists the product, the quantity, and the color when there is one. Supplies stay on the expense and add no gallons. The same invoice is not posted twice. A job that is not in Jobber yet is tried again the next day. [#35](https://github.com/brevee12/spark-jobber-server/pull/35)
 - **Jobber expense delete.** Removing an expense uses Jobber's current delete result, so a replaced invoice can be taken off the job. [#35](https://github.com/brevee12/spark-jobber-server/pull/35)
 - **Job notes.** Can read and update a pinned note on a job. [#33](https://github.com/brevee12/spark-jobber-server/pull/33)

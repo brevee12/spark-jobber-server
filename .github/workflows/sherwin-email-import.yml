@@ -1,8 +1,10 @@
 name: Sherwin email import
 
-# 6:00 PM America/Chicago every day. Reads Sherwin invoice emails from Resend
-# and posts them on the Jobber job in PO#. Runs on the Render server — no
-# Cursor agent tokens. Failed runs email the repo owner (GitHub default).
+# 6:00 PM America/Chicago every day. Reads Sherwin invoice emails from Resend,
+# posts them on the Jobber job in PO#, and attaches each new invoice PDF to a
+# note on that job. Runs on the Render server — no Cursor agent tokens.
+# Failed runs email the repo owner (GitHub default). A note that does not
+# attach still leaves the expense posted.
 
 on:
   schedule:
@@ -60,5 +62,5 @@ jobs:
             -H 'Content-Type: application/json' \
             -H "x-bookkeeping-notify-secret: $NOTIFY_SECRET" \
             -d "$body")
-          jq '{ok, apply, inbox, considered, created, updated, ready, skipped, errors, unparsed, note}' resp.json || cat resp.json
+          jq '{ok, apply, inbox, considered, created, updated, ready, skipped, errors, unparsed, invoiceNoteErrors, note}' resp.json || cat resp.json
           [ "$code" = "200" ] && [ "$(jq -r .ok resp.json)" = "true" ]

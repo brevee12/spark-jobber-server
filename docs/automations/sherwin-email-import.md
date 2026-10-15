@@ -1,6 +1,6 @@
 # Daily Sherwin invoice email → Jobber
 
-Gmail at `veenstrapainting@gmail.com` forwards to the Resend inbox (`paint@….resend.app`). Each evening the server reads new mail, parses the Sherwin invoice (including the PDF), and posts an expense on the Jobber job in PO#. The expense notes gallons. An invoice already on the job is updated, and the pinned note is the total of the Sherwin expenses on that job. SHOP and other non-job POs are skipped. A job that is not in Jobber yet is left unread so the next evening tries again.
+Gmail at `veenstrapainting@gmail.com` forwards to the Resend inbox (`paint@….resend.app`). Each evening the server reads new mail, parses the Sherwin invoice (including the PDF), and posts an expense on the Jobber job in PO#. The expense notes gallons. The invoice PDF is attached to a note on that job, using the fresh Resend link from the same run. An invoice already on the job is updated, and the pinned note is the total of the Sherwin expenses on that job. A second note is not added when that job already names the invoice. SHOP and other non-job POs are skipped and get no PDF note. A job that is not in Jobber yet is left unread so the next evening tries again. If the PDF link is missing or the note does not attach, the expense still stays and the run still finishes.
 
 Nothing is posted until this is deployed and the schedule runs. A purchase made after 6:00 PM shows up the next evening. Ask in chat to run it sooner.
 
