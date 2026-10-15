@@ -299,6 +299,7 @@ async function runJobberAction(action = {}) {
         jobId: action.jobId || action.id,
         message: action.message,
         pinned: action.pinned,
+        attachments: action.attachments,
       });
     }
     case 'edit_job_note': {
@@ -560,6 +561,18 @@ export const toolDefinitions = [
               billingAddress: { type: 'object' },
               title: { type: 'string' },
               message: { type: 'string' },
+              pinned: { type: 'boolean' },
+              noteId: { type: 'string' },
+              attachments: {
+                type: 'array',
+                description:
+                  'create_job_note: [{ url }] files for Jobber to download onto the note. The url must stay reachable until Jobber fetches it.',
+                items: {
+                  type: 'object',
+                  properties: { url: { type: 'string' } },
+                  required: ['url'],
+                },
+              },
               depositAmount: { type: 'number' },
               propertyId: { type: 'string' },
               requestId: { type: 'string' },
@@ -1008,7 +1021,7 @@ export const toolDefinitions = [
   {
     name: 'import_sherwin_emails',
     description:
-      'Read Sherwin-Williams invoice emails from the Resend inbox (Gmail forwards veenstrapainting@gmail.com there) and put each one on the Jobber job in PO#. Gallons come from the invoice. apply:false plans. apply:true writes expenses and remembers the email so it is not posted again. A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated.',
+      'Read Sherwin-Williams invoice emails from the Resend inbox (Gmail forwards veenstrapainting@gmail.com there) and put each one on the Jobber job in PO#. Gallons come from the invoice. apply:false plans. apply:true writes expenses, attaches each new invoice PDF to a note on that job, and remembers the email so it is not posted again. A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated. A missing PDF or a failed note leaves the expense in place.',
     inputSchema: {
       type: 'object',
       properties: {

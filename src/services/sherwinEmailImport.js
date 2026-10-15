@@ -3,6 +3,8 @@
  * Jobber job named in PO#. Gallons come from the invoice, which QuickBooks
  * does not store. An invoice already on the job is updated, not duplicated.
  * SHOP and other non-job POs are skipped.
+ * After a new invoice lands on a job, the PDF is attached to a note on that
+ * job. Jobber downloads the Resend link during this run. The file is not saved.
  */
 
 import { readJson, writeJson } from '../lib/jsonStore.js';
@@ -10,6 +12,7 @@ import { persistEnvVars } from '../lib/durableTokens.js';
 import { parseSherwinInvoiceText } from './sherwinInvoices.js';
 import { applySherwinInvoiceGallons } from './paintJobExpenses.js';
 import { extractPdfText } from './pdfText.js';
+import { createJobNote, listJobNotes } from '../../jobber/client.js';
 import {
   listReceivedEmails,
   getReceivedEmail,
@@ -127,6 +130,91 @@ export async function markSherwinEmailsSeen(emailIds = []) {
   };
 }
 
+export function sherwinInvoiceNoteMessage(docNumber) {
+  return `Sherwin-Williams invoice ${docNumber}`;
+}
+
+function pdfDownloadUrl(attachment) {
+  const url = String(attachment?.download_url || '').trim();
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return '';
+  } catch {
+    return '';
+  }
+  return url;
+}
+
+/**
+ * docNumber -> https URL for the PDF that contained it.
+ * When the PDF text did not parse and the email has one PDF, that file is used.
+ */
+export function invoicePdfUrls(invoices, parsedUrls, pdfAttachments) {
+  const urls = new Map(parsedUrls || []);
+  const ready = (pdfAttachments || []).map((attachment) => pdfDownloadUrl(attachment)).filter(Boolean);
+  if (urls.size > 0 || ready.length !== 1) return urls;
+  const only = ready[0];
+  for (const invoice of invoices || []) {
+    const doc = String(invoice?.docNumber || '');
+    if (doc && !urls.get(doc)) urls.set(doc, only);
+  }
+  return urls;
+}
+
+/**
+ * One note per invoice on the job the PO mapped to.
+ * A note whose message already contains that invoice number is left alone.
+ * A missing URL or a failed create is recorded and does not throw.
+ */
+export async function attachSherwinInvoicePdfNotes({
+  results = [],
+  pdfUrlByDoc = new Map(),
+  listNotes = listJobNotes,
+  createNote = createJobNote,
+} = {}) {
+  const notes = [];
+  const seen = new Set();
+  for (const row of results || []) {
+    if (!row?.jobId || row.docNumber == null || row.docNumber === '') continue;
+    if (!invoiceLanded(row)) continue;
+    const reason = String(row.reason || '');
+    if (reason.includes('is not a job number') || reason === 'no PO#') continue;
+    const doc = String(row.docNumber);
+    const key = `${row.jobId}:${doc}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const base = { docNumber: doc, jobNumber: row.jobNumber || null };
+    const url = pdfUrlByDoc.get(doc) || '';
+    if (!url) {
+      notes.push({ ...base, error: 'invoice PDF url is missing' });
+      continue;
+    }
+    try {
+      const existing = await listNotes(row.jobId);
+      const already = (existing || []).some((note) => String(note?.message || '').includes(doc));
+      if (already) {
+        notes.push({ ...base, skipped: true, reason: 'note already on the job' });
+        continue;
+      }
+      const created = await createNote({
+        jobId: row.jobId,
+        message: sherwinInvoiceNoteMessage(doc),
+        pinned: false,
+        attachments: [{ url }],
+      });
+      if (!created?.id) {
+        notes.push({ ...base, error: 'invoice note was not created' });
+        continue;
+      }
+      notes.push({ ...base, noteId: created.id });
+    } catch (err) {
+      notes.push({ ...base, error: err.message });
+    }
+  }
+  return notes;
+}
+
 /** A skip is finished when another run would not change it. A missing job is not. */
 function invoiceLanded(row) {
   if (row?.action === 'created' || row?.action === 'updated') return true;
@@ -151,29 +239,33 @@ function slimResult(row) {
   };
 }
 
-async function textFromAttachment(attachment, fetchImpl) {
+async function textFromAttachment(attachment, fetchImpl, extractText) {
   const kind = invoiceFileKind(attachment);
   if (!kind) return '';
   const bytes = await downloadAttachment(attachment, fetchImpl);
   if (kind === 'text') return bytes.toString('utf8');
-  return extractPdfText(bytes);
+  return extractText(bytes);
 }
 
 /**
  * @param {{ apply?: boolean, limit?: number, includeSeen?: boolean }} [opts]
- * Inject listEmails / getEmail / attachmentsFor / applyInvoices / markSeen / seenIds in tests.
+ * Inject listEmails / getEmail / attachmentsFor / applyInvoices / markSeen / seenIds /
+ * listJobNotes / createJobNote / extractPdfText in tests.
  */
 export async function importSherwinEmails(opts = {}) {
   const apply = Boolean(opts.apply);
   const limit = opts.limit ?? 30;
   const includeSeen = Boolean(opts.includeSeen);
   const fetchImpl = opts.fetchImpl || fetch;
+  const extractText = opts.extractPdfText || extractPdfText;
   const listEmails = opts.listEmails || ((args) => listReceivedEmails({ ...args, fetchImpl }));
   const getEmail = opts.getEmail || ((id) => getReceivedEmail(id, { fetchImpl }));
   const attachmentsFor =
     opts.attachmentsFor || ((id) => listReceivedAttachments(id, { fetchImpl }));
   const applyInvoices = opts.applyInvoices || applySherwinInvoiceGallons;
   const markSeen = opts.markSeen || markSherwinEmailsSeen;
+  const listNotes = opts.listJobNotes || listJobNotes;
+  const createNote = opts.createJobNote || createJobNote;
   const seen = new Set(opts.seenIds || listSherwinSeenEmailIds());
 
   const listed = await listEmails({ limit });
@@ -204,11 +296,24 @@ export async function importSherwinEmails(opts = {}) {
       const fromSummary = Array.isArray(summary.attachments) ? summary.attachments : [];
       const listedAttachments = fromEmail.length ? fromEmail : fromSummary;
       const attachments = listedAttachments.length ? await attachmentsFor(summary.id) : [];
+      const pdfUrlByDoc = new Map();
+      const pdfAttachments = [];
       let attachmentErrors = 0;
       for (const attachment of attachments) {
-        if (!invoiceFileKind(attachment)) continue;
+        const kind = invoiceFileKind(attachment);
+        if (!kind) continue;
+        if (kind === 'pdf') pdfAttachments.push(attachment);
         try {
-          parts.push(await textFromAttachment(attachment, fetchImpl));
+          const text = await textFromAttachment(attachment, fetchImpl, extractText);
+          parts.push(text);
+          if (kind === 'pdf') {
+            for (const invoice of parseSherwinEmailText(text)) {
+              const doc = String(invoice?.docNumber || '');
+              const url = pdfDownloadUrl(attachment);
+              if (!doc || !url || pdfUrlByDoc.has(doc)) continue;
+              pdfUrlByDoc.set(doc, url);
+            }
+          }
         } catch (err) {
           attachmentErrors += 1;
           parts.push('');
@@ -232,14 +337,23 @@ export async function importSherwinEmails(opts = {}) {
       if (invoices.length) {
         posting = await applyInvoices({ invoices, apply });
       }
-      const noteErrors = (posting?.notes || []).filter((note) => note.error).length;
+      let invoiceNotes = [];
+      if (apply && posting) {
+        invoiceNotes = await attachSherwinInvoicePdfNotes({
+          results: posting.results,
+          pdfUrlByDoc: invoicePdfUrls(invoices, pdfUrlByDoc, pdfAttachments),
+          listNotes,
+          createNote,
+        });
+      }
+      const gallonNoteErrors = (posting?.notes || []).filter((note) => note.error).length;
       const unlanded = apply
         ? (posting?.results || []).filter((row) => !invoiceLanded(row)).length
         : 0;
-      // posting.errors already counts write failures and note failures.
+      // Gallon-note failures count toward the run. A PDF note failure does not.
       const errors =
-        Math.max(posting?.errors || 0, unlanded, noteErrors) + attachmentErrors;
-      emails.push({
+        Math.max(posting?.errors || 0, unlanded, gallonNoteErrors) + attachmentErrors;
+      const emailResult = {
         ...base,
         kind: invoices.length ? 'invoices' : 'no_invoices',
         invoices: invoices.length,
@@ -250,7 +364,9 @@ export async function importSherwinEmails(opts = {}) {
         skipped: posting?.skipped || 0,
         errors,
         results: (posting?.results || []).map(slimResult),
-      });
+      };
+      if (invoiceNotes.length) emailResult.invoiceNotes = invoiceNotes;
+      emails.push(emailResult);
       if (apply && errors === 0) toSee.push(summary.id);
     } catch (err) {
       emails.push({ ...base, kind: 'error', invoices: 0, errors: 1, reason: err.message });
@@ -261,6 +377,10 @@ export async function importSherwinEmails(opts = {}) {
   const sum = (key) => emails.reduce((total, email) => total + (email[key] || 0), 0);
   const unparsed = emails.filter((email) => email.kind === 'unparsed_attachment').length;
   const errors = sum('errors') + unparsed;
+  const invoiceNoteErrors = emails.reduce(
+    (total, email) => total + (email.invoiceNotes || []).filter((item) => item.error).length,
+    0
+  );
 
   let note = null;
   if (!emails.length) note = 'No new Sherwin emails.';
@@ -269,6 +389,8 @@ export async function importSherwinEmails(opts = {}) {
       'Inbox has the Gmail forwarding confirmation only. No Sherwin invoices have arrived.';
   } else if (unparsed) {
     note = 'An email had an attachment that did not parse as a Sherwin invoice.';
+  } else if (invoiceNoteErrors) {
+    note = 'An expense posted, but its invoice PDF was not attached to the job.';
   }
 
   return {
@@ -283,6 +405,7 @@ export async function importSherwinEmails(opts = {}) {
     skipped: sum('skipped'),
     errors,
     unparsed,
+    invoiceNoteErrors,
     note,
     seen: seenResult
       ? { count: seenResult.count, added: seenResult.added, synced: Boolean(seenResult.durable?.synced) }

@@ -273,10 +273,37 @@ const CREATE_JOB_NOTE = `
   }
 `;
 
-export async function createJobNote({ jobId, message, pinned = true }) {
+function noteAttachmentInput(attachments) {
+  if (attachments == null) return [];
+  if (!Array.isArray(attachments)) {
+    throw new Error('note attachments must be a list of { url }');
+  }
+  return attachments.map((item, index) => {
+    const url = item && typeof item.url === 'string' ? item.url.trim() : '';
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || parsed.protocol !== 'https:') {
+      throw new Error(`note attachment ${index + 1} needs an https url`);
+    }
+    return { url };
+  });
+}
+
+export function jobCreateNoteInput({ message, pinned = true, attachments } = {}) {
+  const input = { message, pinned };
+  const files = noteAttachmentInput(attachments);
+  if (files.length) input.attachments = files;
+  return input;
+}
+
+export async function createJobNote({ jobId, message, pinned = true, attachments } = {}) {
   const data = await jobberGraphql(CREATE_JOB_NOTE, {
     jobId: String(jobId),
-    input: { message, pinned },
+    input: jobCreateNoteInput({ message, pinned, attachments }),
   });
   const result = data?.jobCreateNote;
   if (result?.userErrors?.length) {

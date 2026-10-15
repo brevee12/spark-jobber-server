@@ -355,7 +355,8 @@ app.post('/bookkeeping/notify', async (req, res) => {
 });
 
 /**
- * Pull Sherwin invoice emails from Resend and post them on the Jobber job in PO#.
+ * Pull Sherwin invoice emails from Resend, post them on the Jobber job in PO#,
+ * and attach each new invoice PDF to a note on that job.
  * Body: { apply?: boolean, limit?: number, includeSeen?: boolean }
  * Daily GitHub Action sends apply:true. A bare call only plans.
  * Optional header: x-bookkeeping-notify-secret (when BOOKKEEPING_NOTIFY_SECRET is set).
