@@ -13,6 +13,7 @@ import { assignGallons, formatGallons, paintGallonsNote } from './paintGallons.j
 import {
   searchJobs,
   listExpenses,
+  listJobExpenses,
   createExpense,
   editExpense,
   listJobNotes,
@@ -250,16 +251,76 @@ export function invoiceGallonTitle(docNumber, gallons) {
   return `${base} · ${formatGallons(gallons)} gal`;
 }
 
+/**
+ * Gallons already posted on the job, plus this batch.
+ * A doc in the batch replaces the stored line so a retry does not add it twice
+ * and a stale read of the expense just written does not keep the old count.
+ */
+export function gallonsOnSherwinExpenses(expenses = [], batch = []) {
+  const byDoc = new Map();
+  let unlabeled = 0;
+  let known = false;
+
+  for (const expense of expenses) {
+    const description = String(expense?.description || '');
+    if (!/Sherwin-Williams invoice/i.test(description)) continue;
+    const gallons = description.match(/Gallons:\s*(-?\d+(?:\.\d+)?)/);
+    if (!gallons) continue;
+    known = true;
+    const amount = Number(gallons[1]);
+    const doc = description.match(/Sherwin-Williams invoice\s+(\d+)/i)?.[1] || null;
+    if (!doc) {
+      unlabeled += amount;
+      continue;
+    }
+    byDoc.set(doc, amount);
+  }
+
+  for (const invoice of batch) {
+    if (invoice?.gallons == null || invoice?.docNumber == null) continue;
+    known = true;
+    byDoc.set(String(invoice.docNumber), Number(invoice.gallons));
+  }
+
+  if (!known) return null;
+  let total = unlabeled;
+  for (const gallons of byDoc.values()) total += gallons;
+  return Math.round(total * 100) / 100;
+}
+
+function lineName(line) {
+  const description = String(line?.description || '').trim();
+  const product = String(line?.product || line?.productName || line?.rex || '').trim();
+  if (description && product && description !== product) return description;
+  return description || product || 'Item';
+}
+
+/** Coating lines show gallons. Supplies show their own quantity and add no gallons. */
+function lineQuantity(line) {
+  const gallons = line?.gallons == null ? null : Number(line.gallons);
+  if (gallons != null && gallons !== 0) return gallons;
+  if (line?.qty != null && line.qty !== '') return Number(line.qty);
+  return gallons;
+}
+
+export function formatInvoiceLine(line) {
+  const name = lineName(line);
+  const color = String(line?.color || '').trim();
+  const qty = lineQuantity(line);
+  const qtyText = qty == null || Number.isNaN(qty) ? '' : `${formatGallons(qty)} `;
+  return `${qtyText}${name}${color ? ` — ${color}` : ''}`;
+}
+
 export function invoiceGallonDescription(invoice) {
   const items = (invoice.lines || [])
-    .filter((line) => line.gallons != null)
-    .slice(0, 8)
-    .map((line) => `${formatGallons(line.gallons)} gal ${line.description}`);
+    .filter((line) => line && lineName(line) !== 'Item')
+    .filter((line) => !/sales tax/i.test(`${line.description || ''} ${line.product || ''}`))
+    .map((line) => formatInvoiceLine(line));
   return [
+    ...items,
     invoice.gallons == null ? null : `Gallons: ${formatGallons(invoice.gallons)}`,
     `Sherwin-Williams invoice ${invoice.docNumber}`,
     invoice.jobNumber ? `Job ${invoice.jobNumber}` : null,
-    ...items,
   ]
     .filter(Boolean)
     .join('\n');
@@ -321,7 +382,7 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
     const unchanged =
       existing &&
       existing.title === title &&
-      String(existing.description || '').startsWith(`Gallons: ${formatGallons(invoice.gallons)}`);
+      String(existing.description || '') === description;
 
     if (!apply) {
       results.push({
@@ -362,7 +423,16 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
     for (const job of jobs) {
       if (job.gallons == null && !job.unknown) continue;
       try {
-        notes.push({ jobNumber: job.jobNumber, noteId: await upsertGallonNote(job) });
+        const expenses = await listJobExpenses(job.jobId);
+        const batch = results.filter(
+          (row) => row.jobId === job.jobId && row.docNumber && row.gallons != null
+        );
+        const total = gallonsOnSherwinExpenses(expenses, batch);
+        const noteJob =
+          total == null
+            ? job
+            : { ...job, gallons: total, note: paintGallonsNote({ gallons: total, unknown: job.unknown }) };
+        notes.push({ jobNumber: job.jobNumber, noteId: await upsertGallonNote(noteJob) });
       } catch (err) {
         notes.push({ jobNumber: job.jobNumber, error: err.message });
       }
@@ -370,6 +440,7 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
   }
 
   const count = (action) => results.filter((row) => row.action === action).length;
+  const noteErrors = notes.filter((note) => note.error).length;
   return {
     apply,
     invoices: invoices.length,
@@ -378,7 +449,7 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
     ready: count('create'),
     toUpdate: count('update'),
     skipped: count('skip'),
-    errors: count('error'),
+    errors: count('error') + noteErrors,
     gallons: jobs.reduce((sum, job) => sum + (job.gallons || 0), 0),
     jobs: jobs.map((job) => ({
       jobNumber: job.jobNumber,

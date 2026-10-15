@@ -1,0 +1,64 @@
+name: Sherwin email import
+
+# 6:00 PM America/Chicago every day. Reads Sherwin invoice emails from Resend
+# and posts them on the Jobber job in PO#. Runs on the Render server — no
+# Cursor agent tokens. Failed runs email the repo owner (GitHub default).
+
+on:
+  schedule:
+    # GitHub cron is UTC-only: one line per DST offset; the step below keeps
+    # only the line that matches today's Chicago offset.
+    - cron: '0 23 * * *'   # 6:00 PM CDT
+    - cron: '0 0 * * *'    # 6:00 PM CST
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: 'Read the inbox and plan Jobber expenses without writing'
+        type: boolean
+        default: false
+
+concurrency:
+  group: sherwin-email-import
+  cancel-in-progress: false
+
+env:
+  SERVER: https://spark-jobber-server.onrender.com
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Match Chicago DST offset
+        id: gate
+        env:
+          FIRED: ${{ github.event.schedule }}
+        run: |
+          if [ -z "$FIRED" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          offset=$(TZ=America/Chicago date +%z)
+          case "$FIRED" in
+            '0 23 * * *') want=-0500 ;;
+            *) want=-0600 ;;
+          esac
+          if [ "$offset" = "$want" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Wake server (Render free tier cold start)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          curl -sS --max-time 120 --retry 5 --retry-delay 20 --retry-all-errors \
+            "$SERVER/health" -o /dev/null -w 'health %{http_code}\n'
+
+      - name: Import invoices
+        if: steps.gate.outputs.run == 'true'
+        env:
+          NOTIFY_SECRET: ${{ secrets.BOOKKEEPING_NOTIFY_SECRET }}
+          DRY_RUN: ${{ inputs.dryRun || false }}
+        run: |
+          body=$(jq -nc --argjson dryRun "$DRY_RUN" '{apply: ($dryRun|not), limit: 40}')
+          code=$(curl -sS --max-time 240 -o resp.json -w '%{http_code}' \
+            -X POST "$SERVER/sherwin/import" \
+            -H 'Content-Type: application/json' \
+            -H "x-bookkeeping-notify-secret: $NOTIFY_SECRET" \
+            -d "$body")
+          jq '{ok, apply, inbox, considered, created, updated, ready, skipped, errors, unparsed, note}' resp.json || cat resp.json
+          [ "$code" = "200" ] && [ "$(jq -r .ok resp.json)" = "true" ]
