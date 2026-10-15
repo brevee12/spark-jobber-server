@@ -65,5 +65,6 @@ C) On confirmation: `bookkeeping_mark_seen` for approved/skipped numbers; one `j
 ## Related
 
 - Original Spark paste: `spark-cfo-original.md`  
-- Morning email automation: `../automations/morning-bookkeeping-email.md`  
+- Morning email automation: `../automations/morning-bookkeeping-email.md`
+- Daily Sherwin invoice email → Jobber: `../automations/sherwin-email-import.md`  
 - Short biweekly ops notes: `bookkeeping-biweekly.md`

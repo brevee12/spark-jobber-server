@@ -24,6 +24,7 @@ import {
 import { durableSyncConfigured } from './src/lib/durableTokens.js';
 import { emailConfigured, defaultNotifyEmail } from './src/services/email.js';
 import { runBookkeepingNotify } from './src/services/bookkeepingNotify.js';
+import { importSherwinEmails } from './src/services/sherwinEmailImport.js';
 
 const app = express();
 app.use(express.json());
@@ -348,6 +349,37 @@ app.post('/bookkeeping/notify', async (req, res) => {
     });
     const status = result.blocked ? 503 : 200;
     res.status(status).json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * Pull Sherwin invoice emails from Resend and post them on the Jobber job in PO#.
+ * Body: { apply?: boolean, limit?: number, includeSeen?: boolean }
+ * Daily GitHub Action sends apply:true. A bare call only plans.
+ * Optional header: x-bookkeeping-notify-secret (when BOOKKEEPING_NOTIFY_SECRET is set).
+ */
+app.post('/sherwin/import', async (req, res) => {
+  const secret = process.env.BOOKKEEPING_NOTIFY_SECRET?.trim();
+  if (secret) {
+    const provided =
+      req.get('x-bookkeeping-notify-secret') ||
+      (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+    if (provided !== secret) {
+      res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return;
+    }
+  }
+
+  try {
+    const body = req.body || {};
+    const result = await importSherwinEmails({
+      apply: Boolean(body.apply),
+      limit: body.limit,
+      includeSeen: Boolean(body.includeSeen),
+    });
+    res.status(result.ok ? 200 : 502).json(result);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

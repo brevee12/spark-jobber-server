@@ -46,6 +46,7 @@ import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
 import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
+import { importSherwinEmails } from '../services/sherwinEmailImport.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -1005,6 +1006,28 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'import_sherwin_emails',
+    description:
+      'Read Sherwin-Williams invoice emails from the Resend inbox (Gmail forwards veenstrapainting@gmail.com there) and put each one on the Jobber job in PO#. Gallons come from the invoice. apply:false plans. apply:true writes expenses and remembers the email so it is not posted again. A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apply: {
+          type: 'boolean',
+          description: 'false (default) = plan only; true = write Jobber expenses and mark the emails seen',
+        },
+        limit: {
+          type: 'number',
+          description: 'How many recent inbox emails to consider (default 30)',
+        },
+        includeSeen: {
+          type: 'boolean',
+          description: 'Include emails already imported (default false)',
+        },
+      },
+    },
+  },
+  {
     name: 'post_paint_job_expenses',
     description:
       'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought, and a pinned job note shows the total gallons. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and the gallon notes.',
@@ -1053,6 +1076,14 @@ export async function callTool(name, args = {}) {
         return ok(await applySherwinInvoiceGallons({
           invoices: args.invoices,
           apply: Boolean(args.apply),
+        }));
+      }
+
+      case 'import_sherwin_emails': {
+        return ok(await importSherwinEmails({
+          apply: Boolean(args.apply),
+          limit: args.limit,
+          includeSeen: Boolean(args.includeSeen),
         }));
       }
 

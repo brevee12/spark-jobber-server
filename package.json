@@ -2,12 +2,13 @@
   "type": "module",
   "scripts": {
     "start": "node jobber-mcp.js",
-    "test": "node src/services/bankStaging.test.js && node src/services/bookkeepingBrief.test.js && node src/services/qboPostedMatch.test.js && node src/services/qboCategorySuggest.test.js && node src/services/simplefin.test.js && node src/lib/durableTokens.test.js && node src/mcp/quoteMeeting.test.js && node src/mcp/crewSchedule.test.js && node src/services/paintJobExpenses.test.js && node src/services/paintGallons.test.js && node src/services/sherwinInvoices.test.js && node src/mcp/jobberNumbers.test.js && node src/services/invoiceDraft.test.js"
+    "test": "node src/services/bankStaging.test.js && node src/services/bookkeepingBrief.test.js && node src/services/qboPostedMatch.test.js && node src/services/qboCategorySuggest.test.js && node src/services/simplefin.test.js && node src/lib/durableTokens.test.js && node src/mcp/quoteMeeting.test.js && node src/mcp/crewSchedule.test.js && node src/services/paintJobExpenses.test.js && node src/services/paintGallons.test.js && node src/services/sherwinInvoices.test.js && node src/services/sherwinEmailImport.test.js && node src/mcp/jobberNumbers.test.js && node src/services/invoiceDraft.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "^18.0.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "unpdf": "^1.8.1"
   },
   "name": "spark-jobber-server",
   "version": "1.0.0"

@@ -178,6 +178,46 @@ export async function listExpenses({ searchTerm, limit = 20 } = {}) {
   }));
 }
 
+const JOB_EXPENSES = `
+  query JobExpenses($id: EncodedId!, $first: Int!, $after: String) {
+    job(id: $id) {
+      expenses(first: $first, after: $after) {
+        nodes { id title description total }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+`;
+
+/** Sherwin expenses already on a job, so a new invoice can add to the gallon note. */
+export async function listJobExpenses(jobId) {
+  if (!jobId) return [];
+  const out = [];
+  let after = null;
+  for (let page = 0; page < 10; page += 1) {
+    const data = await jobberGraphql(JOB_EXPENSES, {
+      id: String(jobId),
+      first: 50,
+      after,
+    });
+    const conn = data?.job?.expenses;
+    const nodes = conn?.nodes || [];
+    out.push(
+      ...nodes.map((expense) => ({
+        id: expense.id,
+        title: expense.title,
+        description: expense.description || '',
+        total: expense.total,
+      }))
+    );
+    if (!conn?.pageInfo?.hasNextPage || !nodes.length) break;
+    const next = conn.pageInfo.endCursor;
+    if (!next || next === after) break;
+    after = next;
+  }
+  return out;
+}
+
 const EDIT_EXPENSE = `
   mutation EditExpense($expenseId: EncodedId!, $input: ExpenseEditInput!) {
     expenseEdit(expenseId: $expenseId, input: $input) {
