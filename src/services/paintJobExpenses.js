@@ -288,16 +288,39 @@ export function gallonsOnSherwinExpenses(expenses = [], batch = []) {
   return Math.round(total * 100) / 100;
 }
 
+function lineName(line) {
+  const description = String(line?.description || '').trim();
+  const product = String(line?.product || line?.productName || line?.rex || '').trim();
+  if (description && product && description !== product) return description;
+  return description || product || 'Item';
+}
+
+/** Coating lines show gallons. Supplies show their own quantity and add no gallons. */
+function lineQuantity(line) {
+  const gallons = line?.gallons == null ? null : Number(line.gallons);
+  if (gallons != null && gallons !== 0) return gallons;
+  if (line?.qty != null && line.qty !== '') return Number(line.qty);
+  return gallons;
+}
+
+export function formatInvoiceLine(line) {
+  const name = lineName(line);
+  const color = String(line?.color || '').trim();
+  const qty = lineQuantity(line);
+  const qtyText = qty == null || Number.isNaN(qty) ? '' : `${formatGallons(qty)} `;
+  return `${qtyText}${name}${color ? ` — ${color}` : ''}`;
+}
+
 export function invoiceGallonDescription(invoice) {
   const items = (invoice.lines || [])
-    .filter((line) => line.gallons != null)
-    .slice(0, 8)
-    .map((line) => `${formatGallons(line.gallons)} gal ${line.description}`);
+    .filter((line) => line && lineName(line) !== 'Item')
+    .filter((line) => !/sales tax/i.test(`${line.description || ''} ${line.product || ''}`))
+    .map((line) => formatInvoiceLine(line));
   return [
+    ...items,
     invoice.gallons == null ? null : `Gallons: ${formatGallons(invoice.gallons)}`,
     `Sherwin-Williams invoice ${invoice.docNumber}`,
     invoice.jobNumber ? `Job ${invoice.jobNumber}` : null,
-    ...items,
   ]
     .filter(Boolean)
     .join('\n');
@@ -359,7 +382,7 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
     const unchanged =
       existing &&
       existing.title === title &&
-      String(existing.description || '').startsWith(`Gallons: ${formatGallons(invoice.gallons)}`);
+      String(existing.description || '') === description;
 
     if (!apply) {
       results.push({

@@ -1,7 +1,14 @@
 /**
  * Run: node src/services/paintJobExpenses.test.js
  */
-import { gallonsOnSherwinExpenses, jobNumberFromSherwinNote, planPaintBill } from './paintJobExpenses.js';
+import {
+  formatInvoiceLine,
+  gallonsOnSherwinExpenses,
+  invoiceGallonDescription,
+  invoiceGallonTitle,
+  jobNumberFromSherwinNote,
+  planPaintBill,
+} from './paintJobExpenses.js';
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) {
@@ -89,5 +96,31 @@ assertEq(
   6,
   'this run replaces a stale gallon count'
 );
+
+assertEq(
+  invoiceGallonDescription({
+    docNumber: '2655',
+    jobNumber: '26094',
+    gallons: 1,
+    lines: [
+      { product: 'CASHMERE LL EXTRA', qty: 1, gallons: 1, color: 'ALABASTER' },
+      { product: 'PURDY PAIL', qty: 2, gallons: 0 },
+    ],
+  }),
+  '1 CASHMERE LL EXTRA — ALABASTER\n2 PURDY PAIL\nGallons: 1\nSherwin-Williams invoice 2655\nJob 26094',
+  'product, quantity, and color come before the gallon total'
+);
+assertEq(
+  formatInvoiceLine({ product: 'B42B81', description: 'WB DF FL BLACK', qty: 5, gallons: 5 }),
+  '5 WB DF FL BLACK',
+  'invoice text uses the product name, not the product number'
+);
+assertEq(
+  formatInvoiceLine({ description: 'EMERALD UTE SA UD', qty: 1, gallons: 0.25 }),
+  '0.25 EMERALD UTE SA UD',
+  'a quart is a quarter gallon on the line'
+);
+assertEq(invoiceGallonTitle('2655', 1), 'SW 2655 · 1 gal', 'title with gallons');
+assertEq(invoiceGallonTitle('3901', 0), 'SW 3901', 'supplies-only title has no gallon count');
 
 console.log('paintJobExpenses.test.js: all assertions passed');
