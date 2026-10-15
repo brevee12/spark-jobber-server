@@ -694,12 +694,8 @@ export async function createQuote({
 const DELETE_EXPENSE = `
   mutation DeleteExpense($expenseId: EncodedId!) {
     expenseDelete(expenseId: $expenseId) {
-      expense {
+      deletedExpense {
         id
-        title
-        description
-        total
-        date
       }
       userErrors {
         message
@@ -726,7 +722,7 @@ export async function deleteExpense(expenseId) {
 
   return {
     deleted: true,
-    expense: result?.expense || { id: String(expenseId) },
+    expense: result?.deletedExpense || { id: String(expenseId) },
   };
 }
 
