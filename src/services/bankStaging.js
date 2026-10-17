@@ -58,6 +58,7 @@ const CATEGORY_RULES = [
     note: 'Retail — split job materials vs office/tools if needed',
   },
   {
+    // Amount split for these payees is applied in gasStationCategory().
     test: /casey|kwik\s*star|\bshell\b|\bbp\b|fuel|gas\s*station|petrol/i,
     category: 'Fuel / Auto',
     note: 'Fuel or convenience — confirm job vs personal',
@@ -87,7 +88,37 @@ function amountNumber(amount) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function matchCategory(description = '') {
+/** Convenience stores where a small ticket is food, not a fill-up. */
+export const GAS_STATION_RE =
+  /casey|kwik\s*star|\bshell\b|\bbp\b|gas\s*station|petrol|kum\s*&?\s*go|\bpilot\b|\blove'?s\b|quiktrip|\bcenex\b/i;
+
+/**
+ * Gas station default: over $20 is fuel (QBO Car & Truck). Under $20 is
+ * Meals & Entertainment. Exactly $20 stays fuel. Not a gas-station payee → null.
+ */
+export function gasStationCategory(description = '', amount = 0) {
+  if (!GAS_STATION_RE.test(String(description || ''))) return null;
+  const abs = Math.abs(Number(amount) || 0);
+  if (!(abs > 0)) return null;
+  if (abs < 20) {
+    return {
+      suggestedCategory: 'Meals & Entertainment',
+      categoryNote: 'Gas station under $20 — meals',
+      qboName: 'Meals & Entertainment',
+    };
+  }
+  return {
+    suggestedCategory: 'Fuel / Auto',
+    categoryNote: 'Gas station over $20 — fuel',
+    qboName: 'Car & Truck',
+  };
+}
+
+function matchCategory(description = '', amount = 0) {
+  const gas = gasStationCategory(description, amount);
+  if (gas) {
+    return { suggestedCategory: gas.suggestedCategory, categoryNote: gas.categoryNote };
+  }
   for (const rule of CATEGORY_RULES) {
     if (rule.test.test(description)) {
       return { suggestedCategory: rule.category, categoryNote: rule.note };
@@ -111,7 +142,7 @@ export function stageBankTransaction(tx = {}) {
   const accountName = String(tx.accountName || '');
   const onCc = isCreditCardAccount(accountName);
   const onChecking = isCheckingAccount(accountName);
-  const { suggestedCategory, categoryNote } = matchCategory(description);
+  const { suggestedCategory, categoryNote } = matchCategory(description, amount);
 
   const base = {
     ...tx,

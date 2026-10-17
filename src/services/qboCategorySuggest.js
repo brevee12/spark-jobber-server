@@ -8,6 +8,7 @@
 
 import { getQboAccounts } from './qbo.js';
 import { queryAll, checkNumberOf } from './qboPostedMatch.js';
+import { gasStationCategory } from './bankStaging.js';
 
 const HISTORY_DAYS = 365;
 const PAIR_WINDOW_DAYS = 3;
@@ -303,6 +304,16 @@ export function suggestQboAccounts(
         };
       }
       return { ...tx, ...needsPick(`check #${checkNo} not in QBO — who was it paid to?`) };
+    }
+
+    // Gas stations: amount wins over payee history. A $1.81 Casey's used to
+    // follow the fill-ups into Car & Truck.
+    const gas = gasStationCategory(desc, amount);
+    if (gas) {
+      const account = byName(accounts, gas.qboName);
+      if (account) {
+        return { ...tx, ...suggestion('gas-station', account.name, account, gas.categoryNote) };
+      }
     }
 
     const hist = historyPick(tx, history);
