@@ -81,7 +81,7 @@ assertEq(out.c.suggestionSource, 'match-payroll', 'payroll → match');
 assertEq(out.d.suggestedQboAccount.id, '4', 'caseys over $20 is fuel');
 assertEq(out.d.suggestionSource, 'gas-station', 'gas amount beats history');
 assertEq(out.d2.suggestedQboAccount.id, '10', 'caseys under $20 is meals');
-assertEq(out.d3.suggestedQboAccount.id, '10', 'small caseys credit is meals');
+assertEq(out.d3.suggestedQboAccount.id, '4', 'caseys rebate stays fuel');
 assertEq(out.e.suggestedQboAccount.id, '14', 'check by recurring amount');
 assertEq(out.f.suggestionSource, 'needs-input', 'unknown check flagged');
 assertEq(out.g.suggestedCategory, 'Small Tools & Equipment', 'rule → real COA name');

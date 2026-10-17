@@ -110,6 +110,13 @@ function assertEq(actual, expected, label) {
   });
   assertEq(snack.suggestedCategory, 'Meals & Entertainment', 'caseys under $20');
 
+  const rebate = stageBankTransaction({
+    accountName: 'Spark Cash Plus (7296)',
+    amount: '1.00',
+    description: 'RBT-CASEYS',
+  });
+  assertEq(rebate.suggestedCategory, 'Fuel / Auto', 'caseys rebate stays fuel');
+
   const kwik = stageBankTransaction({
     accountName: 'Spark Cash (4558)',
     amount: '-116.35',

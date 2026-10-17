@@ -93,23 +93,25 @@ export const GAS_STATION_RE =
   /casey|kwik\s*star|\bshell\b|\bbp\b|gas\s*station|petrol|kum\s*&?\s*go|\bpilot\b|\blove'?s\b|quiktrip|\bcenex\b/i;
 
 /**
- * Gas station default: over $20 is fuel (QBO Car & Truck). Under $20 is
- * Meals & Entertainment. Exactly $20 stays fuel. Not a gas-station payee → null.
+ * Gas station default. Charges over $20 (and exactly $20) are fuel
+ * (QBO Car & Truck). Charges under $20 are Meals & Entertainment.
+ * Credits and rebates stay fuel at any amount. Not a gas-station payee → null.
  */
 export function gasStationCategory(description = '', amount = 0) {
   if (!GAS_STATION_RE.test(String(description || ''))) return null;
-  const abs = Math.abs(Number(amount) || 0);
-  if (!(abs > 0)) return null;
-  if (abs < 20) {
+  const signed = Number(amount);
+  if (!Number.isFinite(signed) || signed === 0) return null;
+  const abs = Math.abs(signed);
+  if (signed < 0 && abs < 20) {
     return {
       suggestedCategory: 'Meals & Entertainment',
-      categoryNote: 'Gas station under $20 — meals',
+      categoryNote: 'Gas station charge under $20 — meals',
       qboName: 'Meals & Entertainment',
     };
   }
   return {
     suggestedCategory: 'Fuel / Auto',
-    categoryNote: 'Gas station over $20 — fuel',
+    categoryNote: signed > 0 ? 'Gas station rebate — fuel' : 'Gas station over $20 — fuel',
     qboName: 'Car & Truck',
   };
 }
