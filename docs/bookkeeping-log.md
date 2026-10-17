@@ -10,6 +10,33 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-10-17 — Brief approvals (#3–#15; checks left alone)
+
+Checks #1 (1485, $800) and #2 (1483, $1,285) were not posted.
+
+| QBO id | Type | Date | Account | Category | Amount | Brief # |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18631 | Credit Card Credit | 2026-10-12 | CC-Capital One (4558) | Job Supplies | 64.67 | 10 MENARDS ALTOONA IA |
+| 18632 | Credit Card Credit | 2026-10-13 | CC-Capital One Spark (7296) | Car & Truck | 1.00 | 14 RBT-CASEYS |
+| 18633 | Credit Card Credit | 2026-10-13 | CC-Capital One Spark (7296) | Car & Truck | 0.20 | 15 RBT-CASEYS |
+| 18634 | Transfer | 2026-10-15 | Checking-Marion County Bank (3696) → CC-Capital One Spark (7296) | Transfer | 5,628.17 | 12 CAPITAL ONE AUTOPAY PYMT |
+
+Banking: **Match** the Menards credit, both Casey's rebates, and the Spark autopay feed line to these records. Do not add them again.
+
+Feed-only card charges, clear in the QBO Banking feed (do not post again):
+
+| Brief # | Date | Description | Amount | Category |
+| --- | --- | --- | --- | --- |
+| 3 | 2026-10-15 | WENDY'S 4410 | 12.51 | Meals & Entertainment |
+| 4 | 2026-10-14 | CASEYS #3566 | 83.43 | Car & Truck |
+| 5 | 2026-10-14 | KWIK STAR #1727 | 116.35 | Car & Truck |
+| 6 | 2026-10-14 | CASEYS #3214 | 108.33 | Car & Truck |
+| 7 | 2026-10-14 | CASEYS #3214 | 1.81 | Meals & Entertainment |
+| 8 | 2026-10-14 | KWIK STAR #1727 | 106.39 | Car & Truck |
+| 9 | 2026-10-13 | RIVERSIDE FAMILY RESTAURA | 10.53 | Meals & Entertainment |
+| 11 | 2026-10-12 | MENARDS ALTOONA IA | 40.78 | Job Supplies |
+| 13 | 2026-10-14 | The Sherwin-Williams C | 5,473.62 | Job Supplies |
+
 ## 2026-10-13 — Brief approvals (all except checks #2 and #3)
 
 | QBO id | Type | Date | Account | Category | Amount | Brief # |
