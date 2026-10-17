@@ -23,6 +23,7 @@ const accounts = [
   { id: '110', name: 'Small Tools & Equipment', accountType: 'Cost of Goods Sold' },
   { id: '16', name: 'Job Supplies', accountType: 'Cost of Goods Sold' },
   { id: '4', name: 'Car & Truck', accountType: 'Expense' },
+  { id: '10', name: 'Meals & Entertainment', accountType: 'Expense' },
   { id: '14', name: 'Rent & Lease', accountType: 'Expense' },
   { id: '25', name: 'Uncategorized Expense', accountType: 'Expense' },
 ];
@@ -61,6 +62,8 @@ const txs = [
   { id: 'b', accountName: 'EZ BUS 3969 *3969 (3969)', date: '2026-09-15', amount: -11433.24, description: 'CAPITAL ONE CRCARDPMT' },
   { id: 'c', accountName: 'EZ BUS 3969 *3969 (3969)', date: '2026-09-17', amount: -1685.28, description: 'INTUIT 05553090 PAYROLL' },
   { id: 'd', accountName: 'Spark Cash Plus (7296)', date: '2026-09-20', amount: -55, description: 'CASEYS #3566 KNOXVILLE' },
+  { id: 'd2', accountName: 'Spark Cash (4558)', date: '2026-10-14', amount: -1.81, description: 'CASEYS #3214' },
+  { id: 'd3', accountName: 'Spark Cash Plus (7296)', date: '2026-10-13', amount: 1, description: 'RBT-CASEYS' },
   { id: 'e', accountName: 'EZ BUS 3969 *3969 (3969)', date: '2026-09-14', amount: -1285, description: 'CK # 1483' },
   { id: 'f', accountName: 'EZ BUS 3969 *3969 (3969)', date: '2026-09-22', amount: -3000, description: 'CK # 1491' },
   { id: 'g', accountName: 'Spark Cash Plus (7296)', date: '2026-09-23', amount: 159.1, description: 'PAYPAL *FASTOOL INC FA', suggestedCategory: '110 – Small Tools & Equipment', accountKind: 'credit_card' },
@@ -75,8 +78,10 @@ assertEq(out.a.suggestedCategory, 'Transfer ↔ Checking-Marion County Bank (369
 assertEq(out.a.pairedTxId, 'b', 'autopay paired');
 assertEq(out.b.suggestedQboAccount.id, '101', 'checking side → spark');
 assertEq(out.c.suggestionSource, 'match-payroll', 'payroll → match');
-assertEq(out.d.suggestedQboAccount.id, '4', 'caseys from history');
-assertEq(out.d.suggestionSource, 'history', 'history source');
+assertEq(out.d.suggestedQboAccount.id, '4', 'caseys over $20 is fuel');
+assertEq(out.d.suggestionSource, 'gas-station', 'gas amount beats history');
+assertEq(out.d2.suggestedQboAccount.id, '10', 'caseys under $20 is meals');
+assertEq(out.d3.suggestedQboAccount.id, '4', 'caseys rebate stays fuel');
 assertEq(out.e.suggestedQboAccount.id, '14', 'check by recurring amount');
 assertEq(out.f.suggestionSource, 'needs-input', 'unknown check flagged');
 assertEq(out.g.suggestedCategory, 'Small Tools & Equipment', 'rule → real COA name');

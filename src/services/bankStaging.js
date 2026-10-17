@@ -58,6 +58,7 @@ const CATEGORY_RULES = [
     note: 'Retail — split job materials vs office/tools if needed',
   },
   {
+    // Amount split for these payees is applied in gasStationCategory().
     test: /casey|kwik\s*star|\bshell\b|\bbp\b|fuel|gas\s*station|petrol/i,
     category: 'Fuel / Auto',
     note: 'Fuel or convenience — confirm job vs personal',
@@ -87,7 +88,39 @@ function amountNumber(amount) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function matchCategory(description = '') {
+/** Convenience stores where a small ticket is food, not a fill-up. */
+export const GAS_STATION_RE =
+  /casey|kwik\s*star|\bshell\b|\bbp\b|gas\s*station|petrol|kum\s*&?\s*go|\bpilot\b|\blove'?s\b|quiktrip|\bcenex\b/i;
+
+/**
+ * Gas station default. Charges over $20 (and exactly $20) are fuel
+ * (QBO Car & Truck). Charges under $20 are Meals & Entertainment.
+ * Credits and rebates stay fuel at any amount. Not a gas-station payee → null.
+ */
+export function gasStationCategory(description = '', amount = 0) {
+  if (!GAS_STATION_RE.test(String(description || ''))) return null;
+  const signed = Number(amount);
+  if (!Number.isFinite(signed) || signed === 0) return null;
+  const abs = Math.abs(signed);
+  if (signed < 0 && abs < 20) {
+    return {
+      suggestedCategory: 'Meals & Entertainment',
+      categoryNote: 'Gas station charge under $20 — meals',
+      qboName: 'Meals & Entertainment',
+    };
+  }
+  return {
+    suggestedCategory: 'Fuel / Auto',
+    categoryNote: signed > 0 ? 'Gas station rebate — fuel' : 'Gas station over $20 — fuel',
+    qboName: 'Car & Truck',
+  };
+}
+
+function matchCategory(description = '', amount = 0) {
+  const gas = gasStationCategory(description, amount);
+  if (gas) {
+    return { suggestedCategory: gas.suggestedCategory, categoryNote: gas.categoryNote };
+  }
   for (const rule of CATEGORY_RULES) {
     if (rule.test.test(description)) {
       return { suggestedCategory: rule.category, categoryNote: rule.note };
@@ -111,7 +144,7 @@ export function stageBankTransaction(tx = {}) {
   const accountName = String(tx.accountName || '');
   const onCc = isCreditCardAccount(accountName);
   const onChecking = isCheckingAccount(accountName);
-  const { suggestedCategory, categoryNote } = matchCategory(description);
+  const { suggestedCategory, categoryNote } = matchCategory(description, amount);
 
   const base = {
     ...tx,

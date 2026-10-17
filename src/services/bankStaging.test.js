@@ -94,6 +94,37 @@ function assertEq(actual, expected, label) {
   assertEq(payroll.suggestedCategory, 'Payroll / Tax', 'payroll not Software');
 }
 
+// Gas station: over $20 is fuel, under $20 is meals.
+{
+  const fill = stageBankTransaction({
+    accountName: 'Spark Cash (4558)',
+    amount: '-83.43',
+    description: 'CASEYS #3566',
+  });
+  assertEq(fill.suggestedCategory, 'Fuel / Auto', 'caseys over $20');
+
+  const snack = stageBankTransaction({
+    accountName: 'Spark Cash (4558)',
+    amount: '-1.81',
+    description: 'CASEYS #3214',
+  });
+  assertEq(snack.suggestedCategory, 'Meals & Entertainment', 'caseys under $20');
+
+  const rebate = stageBankTransaction({
+    accountName: 'Spark Cash Plus (7296)',
+    amount: '1.00',
+    description: 'RBT-CASEYS',
+  });
+  assertEq(rebate.suggestedCategory, 'Fuel / Auto', 'caseys rebate stays fuel');
+
+  const kwik = stageBankTransaction({
+    accountName: 'Spark Cash (4558)',
+    amount: '-116.35',
+    description: 'KWIK STAR #1727',
+  });
+  assertEq(kwik.suggestedCategory, 'Fuel / Auto', 'kwik star over $20');
+}
+
 // Report groups by account and exposes policy guardrails.
 {
   const report = buildStagingReport([
