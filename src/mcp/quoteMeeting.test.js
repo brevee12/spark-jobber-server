@@ -11,6 +11,7 @@ function assert(cond, msg) {
 {
   const names = toolDefinitions.map((t) => t.name);
   assert(names.includes('quote_meeting'), 'quote_meeting listed');
+  assert(names.includes('search_sherwin_invoices'), 'search_sherwin_invoices listed');
   assert(names.includes('jobber_batch'), 'jobber_batch listed');
   const jobber = toolDefinitions.find((t) => t.name === 'jobber_batch');
   assert(

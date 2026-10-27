@@ -47,6 +47,7 @@ import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
 import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
 import { importSherwinEmails } from '../services/sherwinEmailImport.js';
+import { searchSherwinInvoices } from '../services/sherwinInvoiceStore.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -1006,6 +1007,25 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'search_sherwin_invoices',
+    description:
+      'Search the local Sherwin-Williams invoice archive by color, product, PO, or job number. Does not call Sherwin, email, or QuickBooks, and does not post a Jobber expense. A 4–6 digit PO is the Jobber job. The CSV Job Number column is the store account, not the job.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Words that must all appear, such as a color, product, PO, or job number. Empty returns the newest invoices.',
+        },
+        limit: {
+          type: 'number',
+          description: 'How many invoices to return (default 25, max 100)',
+        },
+      },
+    },
+  },
+  {
     name: 'import_sherwin_emails',
     description:
       'Read Sherwin-Williams invoice emails from the Resend inbox (Gmail forwards veenstrapainting@gmail.com there) and put each one on the Jobber job in PO#. Gallons come from the invoice. apply:false plans. apply:true writes expenses and remembers the email so it is not posted again. A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated.',
@@ -1076,6 +1096,13 @@ export async function callTool(name, args = {}) {
         return ok(await applySherwinInvoiceGallons({
           invoices: args.invoices,
           apply: Boolean(args.apply),
+        }));
+      }
+
+      case 'search_sherwin_invoices': {
+        return ok(searchSherwinInvoices({
+          query: args.query,
+          limit: args.limit,
         }));
       }
 

@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Sherwin invoice archive.** A Sherwin invoice CSV loads into a local store that can be searched by color, product, or PO. The daily email saves new invoices into that same store. Searching it does not post a Jobber expense.
 - **Sherwin invoice PDFs open.** The daily email import can read the invoice file Resend stores, so a daily invoice with a job number is posted as a Jobber expense. A file that could not be read is tried again the next evening.
 - **Sherwin emails into Jobber.** A daily run reads invoice emails from the Resend inbox and posts each one, with gallons, on the job in PO#. Each expense lists the product, the quantity, and the color when there is one. Supplies stay on the expense and add no gallons. The same invoice is not posted twice. A job that is not in Jobber yet is tried again the next day. [#35](https://github.com/brevee12/spark-jobber-server/pull/35)
 - **Jobber expense delete.** Removing an expense uses Jobber's current delete result, so a replaced invoice can be taken off the job. [#35](https://github.com/brevee12/spark-jobber-server/pull/35)
