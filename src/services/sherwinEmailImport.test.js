@@ -86,6 +86,7 @@ function inbox() {
 
 const calls = [];
 const result = await importSherwinEmails({
+  rememberInvoices: false,
   apply: false,
   seenIds: ['already'],
   listEmails: async () => inbox(),
@@ -117,6 +118,7 @@ assertEq(result.emails[0].kind, 'forwarding_confirmation', 'confirmation is not 
 
 const seen = [];
 const failed = await importSherwinEmails({
+  rememberInvoices: false,
   apply: true,
   seenIds: [],
   listEmails: async () => [inbox()[1]],
@@ -140,6 +142,7 @@ assertEq(seen.length, 0, 'failed invoice stays unseen for the next run');
 
 const marked = [];
 const posted = await importSherwinEmails({
+  rememberInvoices: false,
   apply: true,
   seenIds: [],
   listEmails: async () => inbox().slice(0, 2),
@@ -167,6 +170,7 @@ assertEq(marked.includes('mail-1'), true, 'posted email is remembered');
 
 const shopSeen = [];
 const shop = await importSherwinEmails({
+  rememberInvoices: false,
   apply: true,
   seenIds: [],
   listEmails: async () => [inbox()[1]],
@@ -190,6 +194,7 @@ assertEq(shopSeen.includes('mail-1'), true, 'a non-job PO is not retried');
 
 const missingSeen = [];
 const missingJob = await importSherwinEmails({
+  rememberInvoices: false,
   apply: true,
   seenIds: [],
   listEmails: async () => [inbox()[1]],
@@ -213,6 +218,7 @@ assertEq(missingSeen.length, 0, 'a missing job is tried again tomorrow');
 
 const noteSeen = [];
 const noteFailed = await importSherwinEmails({
+  rememberInvoices: false,
   apply: true,
   seenIds: [],
   listEmails: async () => [inbox()[1]],
@@ -237,6 +243,7 @@ assertEq(noteSeen.length, 0, 'a gallon note failure is tried again');
 
 const downloads = [];
 const unparsed = await importSherwinEmails({
+  rememberInvoices: false,
   apply: true,
   seenIds: [],
   listEmails: async () => [

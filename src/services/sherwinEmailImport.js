@@ -10,6 +10,7 @@ import { persistEnvVars } from '../lib/durableTokens.js';
 import { parseSherwinInvoiceText } from './sherwinInvoices.js';
 import { applySherwinInvoiceGallons } from './paintJobExpenses.js';
 import { extractPdfText } from './pdfText.js';
+import { rememberSherwinEmailInvoices } from './sherwinInvoiceStore.js';
 import {
   listReceivedEmails,
   getReceivedEmail,
@@ -160,7 +161,7 @@ async function textFromAttachment(attachment, fetchImpl) {
 }
 
 /**
- * @param {{ apply?: boolean, limit?: number, includeSeen?: boolean }} [opts]
+ * @param {{ apply?: boolean, limit?: number, includeSeen?: boolean, rememberInvoices?: boolean }} [opts]
  * Inject listEmails / getEmail / attachmentsFor / applyInvoices / markSeen / seenIds in tests.
  */
 export async function importSherwinEmails(opts = {}) {
@@ -217,6 +218,13 @@ export async function importSherwinEmails(opts = {}) {
       }
 
       const invoices = parseSherwinEmailText(parts.join('\n'));
+      if (invoices.length && opts.rememberInvoices !== false) {
+        try {
+          base.invoiceStore = rememberSherwinEmailInvoices(invoices);
+        } catch (err) {
+          base.storeError = err.message;
+        }
+      }
       const readable = attachments.filter((attachment) => invoiceFileKind(attachment));
       if (!invoices.length && (readable.length || attachmentErrors)) {
         emails.push({

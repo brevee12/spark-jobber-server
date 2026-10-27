@@ -2,6 +2,8 @@
 
 Gmail at `veenstrapainting@gmail.com` forwards to the Resend inbox (`paint@….resend.app`). Each evening the server reads new mail, parses the Sherwin invoice (including the PDF), and posts an expense on the Jobber job in PO#. The expense notes gallons. An invoice already on the job is updated, and the pinned note is the total of the Sherwin expenses on that job. SHOP and other non-job POs are skipped. A job that is not in Jobber yet is left unread so the next evening tries again.
 
+The same parse is saved in `data/sherwin-invoices.sqlite`. Older invoices come from Sherwin's invoice CSV (100 at a time). `search_sherwin_invoices` looks up a color, product, or PO in that file and does not post anything to Jobber. A 4–6 digit PO is the Jobber job. The CSV column named Job Number is the Sherwin store account. The copy in the repo is the one a deploy keeps. Emails update the copy on the server until the next deploy, so a new CSV is how those invoices stay.
+
 Nothing is posted until this is deployed and the schedule runs. A purchase made after 6:00 PM shows up the next evening. Ask in chat to run it sooner.
 
 ## Schedule
