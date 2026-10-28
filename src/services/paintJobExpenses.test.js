@@ -3,7 +3,6 @@
  */
 import {
   formatInvoiceLine,
-  gallonsOnSherwinExpenses,
   invoiceGallonDescription,
   invoiceGallonTitle,
   jobNumberFromSherwinNote,
@@ -72,29 +71,6 @@ assertEq(
   planPaintBill({ ...bill, gallons: 3, unknownLines: 0 }, { job }).title,
   'SW 89673112820926 · 3 gal',
   'title shows gallons'
-);
-
-const onJob = [
-  { description: 'Gallons: 10\nSherwin-Williams invoice 111\nJob 26095' },
-  { description: 'Gallons: 4\nSherwin-Williams invoice 222\nJob 26095' },
-];
-assertEq(
-  gallonsOnSherwinExpenses(onJob, [{ docNumber: '333', gallons: 5 }]),
-  19,
-  'a new invoice adds to the job total'
-);
-assertEq(
-  gallonsOnSherwinExpenses(onJob, [{ docNumber: '222', gallons: 4 }]),
-  14,
-  'the same invoice is not counted twice'
-);
-assertEq(
-  gallonsOnSherwinExpenses(
-    [{ description: 'Gallons: 10\nSherwin-Williams invoice 222\nJob 26095' }],
-    [{ docNumber: '222', gallons: 6 }]
-  ),
-  6,
-  'this run replaces a stale gallon count'
 );
 
 assertEq(

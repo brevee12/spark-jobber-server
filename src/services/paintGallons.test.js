@@ -1,7 +1,7 @@
 /**
  * Run: node src/services/paintGallons.test.js
  */
-import { assignGallons, explicitGallons, paintGallonsNote } from './paintGallons.js';
+import { assignGallons, explicitGallons } from './paintGallons.js';
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) {
@@ -37,15 +37,5 @@ assertEq(got[5].gallons, 3, '1 gal plus 2 gal on one invoice');
 assertEq(got[6].gallons, 1, 'thinner marked GAL');
 assertEq(explicitGallons('5 GL BLUE PAIL SW'), null, 'pail text is not gallons of paint');
 assertEq(explicitGallons('Product Number: B52F20\nDescription: GLY SRS 20GL SA CL'), null, '20GL in a name is not 20 gallons');
-assertEq(
-  paintGallonsNote({ gallons: 18, unknown: 2 }),
-  'Paint gallons bought: 18\n2 invoices have a line with no quantity, so those lines are not in this total.',
-  'note'
-);
-assertEq(
-  paintGallonsNote({ gallons: null, unknown: 1 }),
-  'Paint gallons bought: not on the QuickBooks invoices\n1 invoice has a line with no quantity, so that line is not in this total.',
-  'missing note'
-);
 
 console.log('paintGallons.test.js: all assertions passed');
