@@ -232,8 +232,8 @@ const noteFailed = await importSherwinEmails({
     return { count: ids.length, added: ids.length, durable: { synced: true } };
   },
 });
-assertEq(noteFailed.ok, false, 'a gallon note failure fails the run');
-assertEq(noteSeen.length, 0, 'a gallon note failure is tried again');
+assertEq(noteFailed.ok, true, 'a leftover gallon note is not part of the run');
+assertEq(noteSeen.includes('mail-1'), true, 'the expense is remembered without a note');
 
 const downloads = [];
 const unparsed = await importSherwinEmails({

@@ -990,7 +990,7 @@ export const toolDefinitions = [
   {
     name: 'apply_sherwin_invoice_gallons',
     description:
-      'Write gallon counts from Sherwin invoice text onto the matching Jobber jobs. Each invoice needs docNumber, jobNumber (the PO), date, amount, gallons, and lines (qty, size, description, gallons). A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated. A pinned job note shows the total gallons. apply:false plans; apply:true writes.',
+      'Write gallon counts from Sherwin invoice text onto the matching Jobber jobs. Each invoice needs docNumber, jobNumber (the PO), date, amount, gallons, and lines (qty, size, description, gallons). A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated. Gallons stay on the expense. apply:false plans; apply:true writes the expense and does not add a job note.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1008,7 +1008,7 @@ export const toolDefinitions = [
   {
     name: 'import_sherwin_emails',
     description:
-      'Read Sherwin-Williams invoice emails from the Resend inbox (Gmail forwards veenstrapainting@gmail.com there) and put each one on the Jobber job in PO#. Gallons come from the invoice. apply:false plans. apply:true writes expenses and remembers the email so it is not posted again. A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated.',
+      'Read Sherwin-Williams invoice emails from the Resend inbox (Gmail forwards veenstrapainting@gmail.com there) and put each one on the Jobber job in PO#. Gallons come from the invoice. apply:false plans. apply:true writes the expense and remembers the email. It does not add a job note. A PO that is not a 4–6 digit job number is skipped. An invoice already on the job is updated.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1030,7 +1030,7 @@ export const toolDefinitions = [
   {
     name: 'post_paint_job_expenses',
     description:
-      'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought, and a pinned job note shows the total gallons. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and the gallon notes.',
+      'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and does not add a job note.',
     inputSchema: {
       type: 'object',
       properties: {

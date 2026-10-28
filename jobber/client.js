@@ -189,7 +189,7 @@ const JOB_EXPENSES = `
   }
 `;
 
-/** Sherwin expenses already on a job, so a new invoice can add to the gallon note. */
+/** Expenses already linked to a job. */
 export async function listJobExpenses(jobId) {
   if (!jobId) return [];
   const out = [];

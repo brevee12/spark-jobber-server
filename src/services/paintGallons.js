@@ -120,17 +120,3 @@ export function assignGallons(bills = []) {
     return { gallons, unknownLines };
   });
 }
-
-export function paintGallonsNote({ gallons, unknown }) {
-  const missing = Number(unknown) || 0;
-  const known = gallons == null ? null : Number(gallons);
-  const head =
-    known == null
-      ? 'Paint gallons bought: not on the QuickBooks invoices'
-      : `Paint gallons bought: ${formatGallons(known)}`;
-  if (!missing) return head;
-  if (missing === 1) {
-    return `${head}\n1 invoice has a line with no quantity, so that line is not in this total.`;
-  }
-  return `${head}\n${missing} invoices have a line with no quantity, so those lines are not in this total.`;
-}

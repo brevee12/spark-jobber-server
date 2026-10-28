@@ -232,13 +232,10 @@ export async function importSherwinEmails(opts = {}) {
       if (invoices.length) {
         posting = await applyInvoices({ invoices, apply });
       }
-      const noteErrors = (posting?.notes || []).filter((note) => note.error).length;
       const unlanded = apply
         ? (posting?.results || []).filter((row) => !invoiceLanded(row)).length
         : 0;
-      // posting.errors already counts write failures and note failures.
-      const errors =
-        Math.max(posting?.errors || 0, unlanded, noteErrors) + attachmentErrors;
+      const errors = Math.max(posting?.errors || 0, unlanded) + attachmentErrors;
       emails.push({
         ...base,
         kind: invoices.length ? 'invoices' : 'no_invoices',

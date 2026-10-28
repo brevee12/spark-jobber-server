@@ -5,20 +5,16 @@
  * A PO that is not a 4–6 digit job number (SHOP, a client name) is skipped.
  * Jobber numbers requests, quotes, invoices, and jobs separately. The PO is
  * matched only to Job.jobNumber, never to a quote or invoice with the same digits.
- * Each expense notes gallons bought, and a pinned job note shows the total.
+ * Each expense notes gallons bought. The import does not write a job note.
  */
 
 import { getSherwinWilliamsBills } from './qbo.js';
-import { assignGallons, formatGallons, paintGallonsNote } from './paintGallons.js';
+import { assignGallons, formatGallons } from './paintGallons.js';
 import {
   searchJobs,
   listExpenses,
-  listJobExpenses,
   createExpense,
   editExpense,
-  listJobNotes,
-  createJobNote,
-  editJobNote,
 } from '../../jobber/client.js';
 
 export function jobNumberFromSherwinNote(note = '') {
@@ -109,8 +105,6 @@ export function planPaintBill(bill, { job = null, existing = null } = {}) {
   return { ...onJob, action: 'create' };
 }
 
-const NOTE_MARK = 'Paint gallons bought:';
-
 export function jobGallonTotals(results = []) {
   const jobs = new Map();
   for (const row of results) {
@@ -135,21 +129,7 @@ export function jobGallonTotals(results = []) {
   return [...jobs.values()].map((job) => ({
     ...job,
     gallons: job.known ? job.gallons : null,
-    note: paintGallonsNote({ gallons: job.known ? job.gallons : null, unknown: job.unknown }),
   }));
-}
-
-async function upsertGallonNote(job) {
-  if (!job.note) return null;
-  const notes = await listJobNotes(job.jobId);
-  const existing = notes.find((note) => String(note.message || '').startsWith(NOTE_MARK));
-  if (existing) {
-    if (existing.message === job.note && existing.pinned) return existing.id;
-    const edited = await editJobNote({ noteId: existing.id, message: job.note, pinned: true });
-    return edited?.id || existing.id;
-  }
-  const created = await createJobNote({ jobId: job.jobId, message: job.note, pinned: true });
-  return created?.id || null;
 }
 
 export async function postPaintJobExpenses({ maxResults = 100, apply = false } = {}) {
@@ -210,18 +190,6 @@ export async function postPaintJobExpenses({ maxResults = 100, apply = false } =
   }
 
   const jobs = jobGallonTotals(results);
-  const notes = [];
-  if (apply) {
-    for (const job of jobs) {
-      if (job.gallons == null && !job.unknown) continue;
-      try {
-        notes.push({ jobNumber: job.jobNumber, noteId: await upsertGallonNote(job) });
-      } catch (err) {
-        notes.push({ jobNumber: job.jobNumber, error: err.message });
-      }
-    }
-  }
-
   const count = (action) => results.filter((r) => r.action === action).length;
   const knownGallons = jobs.reduce((sum, job) => sum + (job.gallons || 0), 0);
   return {
@@ -240,7 +208,6 @@ export async function postPaintJobExpenses({ maxResults = 100, apply = false } =
       gallons: job.gallons,
       unknown: job.unknown,
     })),
-    notes,
     results,
   };
 }
@@ -249,43 +216,6 @@ export function invoiceGallonTitle(docNumber, gallons) {
   const base = `SW ${docNumber}`;
   if (gallons == null || Number(gallons) === 0) return base;
   return `${base} · ${formatGallons(gallons)} gal`;
-}
-
-/**
- * Gallons already posted on the job, plus this batch.
- * A doc in the batch replaces the stored line so a retry does not add it twice
- * and a stale read of the expense just written does not keep the old count.
- */
-export function gallonsOnSherwinExpenses(expenses = [], batch = []) {
-  const byDoc = new Map();
-  let unlabeled = 0;
-  let known = false;
-
-  for (const expense of expenses) {
-    const description = String(expense?.description || '');
-    if (!/Sherwin-Williams invoice/i.test(description)) continue;
-    const gallons = description.match(/Gallons:\s*(-?\d+(?:\.\d+)?)/);
-    if (!gallons) continue;
-    known = true;
-    const amount = Number(gallons[1]);
-    const doc = description.match(/Sherwin-Williams invoice\s+(\d+)/i)?.[1] || null;
-    if (!doc) {
-      unlabeled += amount;
-      continue;
-    }
-    byDoc.set(doc, amount);
-  }
-
-  for (const invoice of batch) {
-    if (invoice?.gallons == null || invoice?.docNumber == null) continue;
-    known = true;
-    byDoc.set(String(invoice.docNumber), Number(invoice.gallons));
-  }
-
-  if (!known) return null;
-  let total = unlabeled;
-  for (const gallons of byDoc.values()) total += gallons;
-  return Math.round(total * 100) / 100;
 }
 
 function lineName(line) {
@@ -418,29 +348,7 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
   }
 
   const jobs = jobGallonTotals(results);
-  const notes = [];
-  if (apply) {
-    for (const job of jobs) {
-      if (job.gallons == null && !job.unknown) continue;
-      try {
-        const expenses = await listJobExpenses(job.jobId);
-        const batch = results.filter(
-          (row) => row.jobId === job.jobId && row.docNumber && row.gallons != null
-        );
-        const total = gallonsOnSherwinExpenses(expenses, batch);
-        const noteJob =
-          total == null
-            ? job
-            : { ...job, gallons: total, note: paintGallonsNote({ gallons: total, unknown: job.unknown }) };
-        notes.push({ jobNumber: job.jobNumber, noteId: await upsertGallonNote(noteJob) });
-      } catch (err) {
-        notes.push({ jobNumber: job.jobNumber, error: err.message });
-      }
-    }
-  }
-
   const count = (action) => results.filter((row) => row.action === action).length;
-  const noteErrors = notes.filter((note) => note.error).length;
   return {
     apply,
     invoices: invoices.length,
@@ -449,7 +357,7 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
     ready: count('create'),
     toUpdate: count('update'),
     skipped: count('skip'),
-    errors: count('error') + noteErrors,
+    errors: count('error'),
     gallons: jobs.reduce((sum, job) => sum + (job.gallons || 0), 0),
     jobs: jobs.map((job) => ({
       jobNumber: job.jobNumber,
@@ -457,7 +365,6 @@ export async function applySherwinInvoiceGallons({ invoices = [], apply = false 
       gallons: job.gallons,
       unknown: job.unknown,
     })),
-    notes,
     results,
   };
 }
