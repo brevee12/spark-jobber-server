@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Quote on a different house.** A new client can have a mailing address and a separate job-site property. Quotes use that property. Client create no longer sends fields Jobber rejects, and a property or an internal client note can be added on its own. [#41](https://github.com/brevee12/spark-jobber-server/pull/41)
 - **Sherwin invoice PDFs open.** The daily email import can read the invoice file Resend stores, so a daily invoice with a job number is posted as a Jobber expense. A file that could not be read is tried again the next evening.
 - **Sherwin emails into Jobber.** A daily run reads invoice emails from the Resend inbox and posts each one, with gallons, on the job in PO#. Each expense lists the product, the quantity, and the color when there is one. Supplies stay on the expense and add no gallons. The same invoice is not posted twice. A job that is not in Jobber yet is tried again the next day. [#35](https://github.com/brevee12/spark-jobber-server/pull/35)
 - **Jobber expense delete.** Removing an expense uses Jobber's current delete result, so a replaced invoice can be taken off the job. [#35](https://github.com/brevee12/spark-jobber-server/pull/35)

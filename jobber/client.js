@@ -354,6 +354,12 @@ export async function searchJobs({ jobNumber, query, limit = 25 } = {}) {
   return jobs;
 }
 
+const PROPERTY_FIELDS = `
+  id
+  name
+  address { street1 city province postalCode }
+`;
+
 const CREATE_CLIENT = `
   mutation CreateClient($input: ClientCreateInput!) {
     clientCreate(input: $input) {
@@ -366,11 +372,53 @@ const CREATE_CLIENT = `
         isLead
         jobberWebUri
         createdAt
+        clientProperties(first: 10) {
+          nodes { ${PROPERTY_FIELDS} }
+        }
       }
       userErrors {
         message
         path
       }
+    }
+  }
+`;
+
+const GET_CLIENT = `
+  query GetClient($id: EncodedId!) {
+    client(id: $id) {
+      id
+      name
+      firstName
+      lastName
+      companyName
+      isLead
+      isCompany
+      jobberWebUri
+      emails { address primary }
+      phones { number primary }
+      billingAddress { street1 street2 city province postalCode country }
+      clientProperties(first: 20) {
+        nodes { ${PROPERTY_FIELDS} }
+      }
+    }
+  }
+`;
+
+const CREATE_PROPERTY = `
+  mutation CreateProperty($clientId: EncodedId!, $input: PropertyCreateInput!) {
+    propertyCreate(clientId: $clientId, input: $input) {
+      properties { ${PROPERTY_FIELDS} }
+      userErrors { message path }
+    }
+  }
+`;
+
+const CREATE_CLIENT_NOTE = `
+  mutation CreateClientNote($clientId: EncodedId!, $input: ClientCreateNoteInput!) {
+    clientCreateNote(clientId: $clientId, input: $input) {
+      clientNote { id message pinned }
+      userErrors { message path }
     }
   }
 `;
@@ -467,18 +515,42 @@ const CREATE_QUOTE_LINE_ITEMS = `
 `;
 
 /**
- * Create a Jobber client (person or company).
+ * One Jobber property. Accepts { street1, city, ... } or { address, name }.
+ * AddressAttributes has no `name`; that belongs on the property.
  */
-export async function createClient({
+export function propertyAttributes(property = {}) {
+  if (!property || typeof property !== 'object') return null;
+  const address =
+    property.address && typeof property.address === 'object' ? property.address : property;
+  const street1 = address.street1 || address.street || '';
+  if (!street1 && !address.city) return null;
+  const addr = {};
+  if (street1) addr.street1 = String(street1);
+  if (address.street2) addr.street2 = String(address.street2);
+  if (address.city) addr.city = String(address.city);
+  if (address.province || address.state) addr.province = String(address.province || address.state);
+  if (address.postalCode || address.zip) {
+    addr.postalCode = String(address.postalCode || address.zip);
+  }
+  if (address.country) addr.country = String(address.country);
+  const row = { address: addr };
+  if (property.name) row.name = String(property.name);
+  return row;
+}
+
+/**
+ * ClientCreateInput. isLead and note are not fields on this input — sending
+ * them makes Jobber reject the whole create. Notes use clientCreateNote.
+ */
+export function buildClientCreateInput({
   firstName,
   lastName,
   companyName,
   isCompany,
-  isLead,
   email,
   phone,
-  note,
   billingAddress,
+  properties,
 } = {}) {
   const input = {};
 
@@ -487,28 +559,63 @@ export async function createClient({
   if (companyName) input.companyName = companyName;
   if (typeof isCompany === 'boolean') input.isCompany = isCompany;
   else if (companyName && !firstName && !lastName) input.isCompany = true;
-  if (typeof isLead === 'boolean') input.isLead = isLead;
-  if (note) input.note = note;
 
   if (email) {
-    input.emails = [
-      { address: String(email), primary: true, description: 'MAIN' },
-    ];
+    input.emails = [{ address: String(email), primary: true, description: 'MAIN' }];
   }
 
   if (phone) {
-    input.phones = [
-      { number: String(phone), primary: true, description: 'MAIN' },
-    ];
+    input.phones = [{ number: String(phone), primary: true, description: 'MAIN' }];
   }
 
   if (billingAddress && typeof billingAddress === 'object') {
     input.billingAddress = billingAddress;
   }
 
+  const props = (Array.isArray(properties) ? properties : [])
+    .map(propertyAttributes)
+    .filter(Boolean);
+  if (props.length) input.properties = props;
+
   if (!input.firstName && !input.lastName && !input.companyName) {
     throw new Error('Provide at least firstName/lastName or companyName');
   }
+
+  return input;
+}
+
+function mapProperties(nodes) {
+  return (nodes || []).map((p) => ({
+    id: p.id,
+    name: p.name || null,
+    address: p.address || null,
+  }));
+}
+
+/**
+ * Create a Jobber client (person or company).
+ * properties: job-site addresses, separate from billingAddress.
+ */
+export async function createClient({
+  firstName,
+  lastName,
+  companyName,
+  isCompany,
+  email,
+  phone,
+  billingAddress,
+  properties,
+} = {}) {
+  const input = buildClientCreateInput({
+    firstName,
+    lastName,
+    companyName,
+    isCompany,
+    email,
+    phone,
+    billingAddress,
+    properties,
+  });
 
   const data = await jobberGraphql(CREATE_CLIENT, { input });
   const result = data?.clientCreate;
@@ -517,7 +624,79 @@ export async function createClient({
     throw new Error(result.userErrors.map((e) => e.message).join('; '));
   }
 
-  return result.client;
+  const client = result.client;
+  return {
+    ...client,
+    properties: mapProperties(client?.clientProperties?.nodes),
+  };
+}
+
+/** Client plus service properties (quotes require a property id). */
+export async function getClient(clientId) {
+  const id = toJobberEncodedId('Client', clientId);
+  if (!id) throw new Error('clientId is required');
+  const data = await jobberGraphql(GET_CLIENT, { id });
+  const c = data?.client;
+  if (!c) throw new Error('Client not found');
+  const phones = Array.isArray(c.phones) ? c.phones : [];
+  const emails = Array.isArray(c.emails) ? c.emails : [];
+  return {
+    id: c.id,
+    name: c.name,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    companyName: c.companyName,
+    isLead: c.isLead,
+    isCompany: c.isCompany,
+    jobberWebUri: c.jobberWebUri,
+    billingAddress: c.billingAddress || null,
+    phone: phones.find((p) => p.primary)?.number || phones[0]?.number || null,
+    email: emails.find((e) => e.primary)?.address || emails[0]?.address || null,
+    properties: mapProperties(c.clientProperties?.nodes),
+  };
+}
+
+/**
+ * Add a service property on an existing client.
+ * address: { street1, city, province, postalCode, country }
+ */
+export async function createProperty({ clientId, address, name, properties } = {}) {
+  const encodedClientId = toJobberEncodedId('Client', clientId);
+  if (!encodedClientId) throw new Error('clientId is required');
+
+  const list = Array.isArray(properties) && properties.length
+    ? properties
+    : [{ ...(address || {}), name }];
+  const rows = list.map(propertyAttributes).filter(Boolean);
+  if (!rows.length) throw new Error('Provide an address with street1');
+
+  const data = await jobberGraphql(CREATE_PROPERTY, {
+    clientId: encodedClientId,
+    input: { properties: rows },
+  });
+  const result = data?.propertyCreate;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return { properties: mapProperties(result?.properties) };
+}
+
+/** Internal note on the client. Not shown on the quote. */
+export async function createClientNote({ clientId, message, pinned = false } = {}) {
+  const encodedClientId = toJobberEncodedId('Client', clientId);
+  if (!encodedClientId) throw new Error('clientId is required');
+  const text = String(message || '').trim();
+  if (!text) throw new Error('message is required');
+
+  const data = await jobberGraphql(CREATE_CLIENT_NOTE, {
+    clientId: encodedClientId,
+    input: { message: text, pinned: Boolean(pinned) },
+  });
+  const result = data?.clientCreateNote;
+  if (result?.userErrors?.length) {
+    throw new Error(result.userErrors.map((e) => e.message).join('; '));
+  }
+  return result?.clientNote || { message: text };
 }
 
 /**
@@ -597,7 +776,12 @@ export async function createQuote({
   }
 
   const encodedPropertyId = toJobberEncodedId('Property', propertyId);
-  if (encodedPropertyId) baseAttributes.propertyId = encodedPropertyId;
+  if (!encodedPropertyId) {
+    throw new Error(
+      'propertyId is required. Jobber will not create a quote until the client has a property.'
+    );
+  }
+  baseAttributes.propertyId = encodedPropertyId;
 
   const encodedRequestId = toJobberEncodedId('Request', requestId);
   if (encodedRequestId) baseAttributes.requestId = encodedRequestId;

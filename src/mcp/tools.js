@@ -4,6 +4,9 @@ import {
   deleteExpense,
   searchJobs,
   createClient,
+  getClient,
+  createProperty,
+  createClientNote,
   createQuote,
   createVisit,
   getJob,
@@ -82,6 +85,9 @@ const JOBBER_OPS = [
   'get_invoice',
   'get_quote',
   'create_client',
+  'get_client',
+  'create_property',
+  'create_client_note',
   'create_quote',
   'update_quote',
   'create_expense',
@@ -168,11 +174,28 @@ async function runJobberAction(action = {}) {
         lastName: action.lastName,
         companyName: action.companyName,
         isCompany: action.isCompany,
-        isLead: action.isLead,
         email: action.email,
         phone: action.phone,
-        note: action.note,
         billingAddress: action.billingAddress,
+        properties: action.properties,
+      });
+    }
+    case 'get_client': {
+      return getClient(action.clientId || action.id);
+    }
+    case 'create_property': {
+      return createProperty({
+        clientId: action.clientId,
+        name: action.name,
+        address: action.address || action.propertyAddress,
+        properties: action.properties,
+      });
+    }
+    case 'create_client_note': {
+      return createClientNote({
+        clientId: action.clientId,
+        message: action.message || action.note,
+        pinned: action.pinned,
       });
     }
     case 'create_quote': {
@@ -558,6 +581,18 @@ export const toolDefinitions = [
               phone: { type: 'string' },
               note: { type: 'string' },
               billingAddress: { type: 'object' },
+              properties: {
+                type: 'array',
+                description: 'Service properties: [{ street1, city, province, postalCode, country, name }]',
+              },
+              address: { type: 'object', description: 'create_property address' },
+              propertyAddress: { type: 'object' },
+              pinned: { type: 'boolean' },
+              city: { type: 'string' },
+              province: { type: 'string' },
+              postalCode: { type: 'string' },
+              country: { type: 'string' },
+              street1: { type: 'string' },
               title: { type: 'string' },
               message: { type: 'string' },
               depositAmount: { type: 'number' },

@@ -8,6 +8,9 @@ import {
   searchQuotes,
   searchRequests,
   createClient,
+  createProperty,
+  createClientNote,
+  getClient,
   createQuote,
   editQuote,
   getQuote,
@@ -44,6 +47,58 @@ function scoreClient(client, { name, street, phone, email }) {
       score += 4;
   }
   return score;
+}
+
+/** Job site for the quote. Billing can be a different mailing address. */
+export function jobSiteProperties(args) {
+  if (Array.isArray(args.properties) && args.properties.length) return args.properties;
+  const src =
+    args.propertyAddress && typeof args.propertyAddress === 'object' ? args.propertyAddress : {};
+  const street1 = src.street1 || args.street || args.billingAddress?.street1 || '';
+  if (!street1) return [];
+  return [
+    {
+      name: args.propertyName || street1,
+      street1,
+      street2: src.street2,
+      city: src.city || args.city,
+      province: src.province || args.province,
+      postalCode: src.postalCode || args.postalCode,
+      country: src.country || args.country,
+    },
+  ];
+}
+
+function streetsMatch(a, b) {
+  const left = norm(a);
+  const right = norm(b);
+  if (!left || !right) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+async function resolvePropertyId(clientId, args) {
+  if (args.propertyId) return args.propertyId;
+  const wanted = jobSiteProperties(args);
+  const wantedStreet = wanted[0]?.street1 || '';
+  let existing = [];
+  try {
+    const full = await getClient(clientId);
+    existing = full?.properties || [];
+  } catch {
+    existing = [];
+  }
+  const match = existing.find((p) => streetsMatch(p.address?.street1, wantedStreet));
+  if (match) return match.id;
+  if (!wanted.length) {
+    if (existing.length === 1) return existing[0].id;
+    return null;
+  }
+  const made = await createProperty({
+    clientId,
+    address: wanted[0],
+    name: wanted[0].name,
+  });
+  return made.properties?.[0]?.id || null;
 }
 
 function pickBestClient(clients, hints) {
@@ -285,13 +340,10 @@ export async function runQuoteMeeting(args = {}) {
         (nameParts.length > 1 ? nameParts.slice(1).join(' ') : undefined),
       companyName: args.companyName,
       isCompany: args.isCompany,
-      isLead: args.isLead !== false,
       email: args.email,
       phone: args.phone,
-      note: args.meetingNotes
-        ? `From quote meeting: ${String(args.meetingNotes).slice(0, 500)}`
-        : undefined,
       billingAddress: args.billingAddress || args.propertyAddress,
+      properties: jobSiteProperties(args),
     });
     clientId = created.id;
     actionsTaken.push({ op: 'create_client', data: created });
@@ -302,6 +354,19 @@ export async function runQuoteMeeting(args = {}) {
       op: 'use_existing_client',
       data: { id: clientId, name: client?.name || null },
     });
+  }
+
+  if (args.meetingNotes) {
+    try {
+      const note = await createClientNote({
+        clientId,
+        message: `From quote meeting: ${String(args.meetingNotes).slice(0, 2000)}`,
+        pinned: false,
+      });
+      actionsTaken.push({ op: 'create_client_note', data: note });
+    } catch (err) {
+      actionsTaken.push({ op: 'create_client_note', error: err.message });
+    }
   }
 
   // House style: short scope titles ("Exterior Repaint"), no client name/address.
@@ -326,12 +391,18 @@ export async function runQuoteMeeting(args = {}) {
     decision.quoteId = quote.id;
     actionsTaken.push({ op: 'update_quote', data: quoteResult });
   } else {
+    const propertyId = await resolvePropertyId(clientId, args);
+    if (!propertyId) {
+      throw new Error(
+        'Cannot create the quote: Jobber requires a property. Pass street or propertyAddress.'
+      );
+    }
     quoteResult = await createQuote({
       clientId,
       title,
       message: message || undefined,
       depositAmount: args.depositAmount,
-      propertyId: args.propertyId,
+      propertyId,
       requestId: decision.requestId || args.requestId,
       lineItems,
     });
