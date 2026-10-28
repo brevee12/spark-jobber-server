@@ -3,6 +3,7 @@
  * Run: node src/mcp/quoteMeeting.test.js
  */
 import { toolDefinitions } from './tools.js';
+import { jobSiteProperties } from './quoteMeeting.js';
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -24,6 +25,23 @@ function assert(cond, msg) {
     ),
     'jobber_batch ops include search/update quote ops'
   );
+}
+
+{
+  const sites = jobSiteProperties({
+    street: '704 G Avenue West',
+    city: 'Oskaloosa',
+    province: 'IA',
+    postalCode: '52577',
+    billingAddress: { street1: '1444 Fisher Avenue', city: 'New Sharon' },
+  });
+  assert(sites.length === 1, 'one job site');
+  assert(sites[0].street1 === '704 G Avenue West', 'job site is not the mailing street');
+  assert(sites[0].city === 'Oskaloosa', 'job site city');
+  const mailed = jobSiteProperties({
+    billingAddress: { street1: '1444 Fisher Avenue', city: 'New Sharon' },
+  });
+  assert(mailed[0].street1 === '1444 Fisher Avenue', 'billing street is the property when no job site was given');
 }
 
 console.log('quoteMeeting.test.js: all assertions passed');
