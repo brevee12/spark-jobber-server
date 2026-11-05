@@ -151,12 +151,12 @@ function slimResult(row) {
   };
 }
 
-async function textFromAttachment(attachment, fetchImpl) {
+async function readAttachment(attachment, fetchImpl) {
   const kind = invoiceFileKind(attachment);
-  if (!kind) return '';
+  if (!kind) return { kind: null, text: '', bytes: null };
   const bytes = await downloadAttachment(attachment, fetchImpl);
-  if (kind === 'text') return bytes.toString('utf8');
-  return extractPdfText(bytes);
+  const text = kind === 'text' ? bytes.toString('utf8') : await extractPdfText(bytes);
+  return { kind, text, bytes };
 }
 
 /**
@@ -205,10 +205,19 @@ export async function importSherwinEmails(opts = {}) {
       const listedAttachments = fromEmail.length ? fromEmail : fromSummary;
       const attachments = listedAttachments.length ? await attachmentsFor(summary.id) : [];
       let attachmentErrors = 0;
+      const files = [];
       for (const attachment of attachments) {
         if (!invoiceFileKind(attachment)) continue;
         try {
-          parts.push(await textFromAttachment(attachment, fetchImpl));
+          const read = await readAttachment(attachment, fetchImpl);
+          parts.push(read.text);
+          if (read.kind === 'pdf' && read.bytes) {
+            files.push({
+              filename: attachment.filename || 'invoice.pdf',
+              contentType: attachment.content_type || 'application/pdf',
+              bytes: read.bytes,
+            });
+          }
         } catch (err) {
           attachmentErrors += 1;
           parts.push('');
@@ -229,8 +238,12 @@ export async function importSherwinEmails(opts = {}) {
       }
 
       let posting = null;
+      let archived = null;
       if (invoices.length) {
         posting = await applyInvoices({ invoices, apply });
+        if (typeof opts.onInvoices === 'function') {
+          archived = await opts.onInvoices({ invoices, files, email: base });
+        }
       }
       const noteErrors = (posting?.notes || []).filter((note) => note.error).length;
       const unlanded = apply
@@ -249,6 +262,7 @@ export async function importSherwinEmails(opts = {}) {
         toUpdate: posting?.toUpdate || 0,
         skipped: posting?.skipped || 0,
         errors,
+        archived: archived?.documents || 0,
         results: (posting?.results || []).map(slimResult),
       });
       if (apply && errors === 0) toSee.push(summary.id);
