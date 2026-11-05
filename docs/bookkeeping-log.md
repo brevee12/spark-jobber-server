@@ -10,6 +10,33 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-11-05 — Brief approvals (all 11)
+
+| QBO id | Type | Date | Account | Category | Amount | Brief # |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18851 | Transfer | 2026-10-22 | Checking-Marion County Bank (3696) → CC-Capital One (4558) | Transfer | 2,322.27 | 4 CAPITAL ONE AUTOPAY PYMT |
+| 18852 | Expense (Credit Card) | 2026-10-29 | CC-Capital One Spark (7296) | Office Supplies & Software | 5.00 | 7 RAILWAY |
+| 18853 | Credit Card Credit | 2026-10-27 | CC-Capital One Spark (7296) | Car & Truck | 1.00 | 8 RBT-CASEYS |
+
+Banking: **Match** the Spark Cash +2,322.27 feed line to transfer 18851, the Spark Cash Plus −5.00 Railway line to 18852, and the +1.00 Casey's line to 18853. Do not add them again.
+
+The checking feed has no October activity (last line is 2026-09-22), so the checking side of this autopay was not in SimpleFIN. No QuickBooks record of $2,322.27 existed within a day of 2026-10-22 before this transfer.
+
+There is no account named Software. Railway is coded to Office Supplies & Software.
+
+The other approved lines are feed-only. Clear them in the QBO Banking feed. Do not post them again:
+
+| # | Date | Account | Description | Amount | Category |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2026-11-02 | Spark Cash (4558) | MENARDS ALTOONA IA | -243.32 | Job Supplies |
+| 2 | 2026-10-30 | Spark Cash (4558) | SUBWAY 7713 | -23.10 | Meals & Entertainment |
+| 3 | 2026-10-28 | Spark Cash (4558) | VZWRLSS*APOCC VISB | -744.49 | Cell Phone Expense |
+| 5 | 2026-10-30 | Spark Cash Plus (7296) | STATE FARM INSURANCE | -1,200.59 | Insurance |
+| 6 | 2026-10-30 | Spark Cash Plus (7296) | STATE FARM INSURANCE | -76.73 | Insurance |
+| 9 | 2026-10-22 | Spark Cash Plus (7296) | PAYPAL *QUICKBOOKS | -233.26 | Office Supplies & Software |
+| 10 | 2026-10-22 | Spark Cash Plus (7296) | JOBBER | -373.43 | Office Supplies & Software |
+| 11 | 2026-10-14 | Spark Cash Plus (7296) | The Sherwin-Williams C | -5,473.62 | Job Supplies |
+
 ## 2026-10-13 — Brief approvals (all except checks #2 and #3)
 
 | QBO id | Type | Date | Account | Category | Amount | Brief # |
