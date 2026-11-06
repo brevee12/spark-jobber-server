@@ -7,3 +7,5 @@ node_modules/
 .simplefin-setup.tmp
 .simplefin-cache.json
 .sherwin-processed-emails.json
+.onedrive-tokens.json
+data/

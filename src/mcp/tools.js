@@ -50,6 +50,9 @@ import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
 import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
 import { importSherwinEmails } from '../services/sherwinEmailImport.js';
+import { askArchive } from '../services/archiveSearch.js';
+import { openArchive } from '../services/jobArchive.js';
+import { archiveEmailInvoices } from '../http/archiveRoutes.js';
 import {
   getSherwinWilliamsBills,
   postQboExpense,
@@ -1063,6 +1066,21 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'ask_archive',
+    description:
+      'Answer a plain-language question from the Sherwin invoice and job archive (product, color, job number, month). The answer is only rows on file. A misspelled product is matched to a real name. Does not post to Jobber or QuickBooks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'For example: When did we last use Cashmere? What jobs did we do last March?',
+        },
+      },
+      required: ['question'],
+    },
+  },
+  {
     name: 'post_paint_job_expenses',
     description:
       'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought, and a pinned job note shows the total gallons. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and the gallon notes.',
@@ -1119,7 +1137,19 @@ export async function callTool(name, args = {}) {
           apply: Boolean(args.apply),
           limit: args.limit,
           includeSeen: Boolean(args.includeSeen),
+          onInvoices: args.apply ? archiveEmailInvoices : undefined,
         }));
+      }
+
+      case 'ask_archive': {
+        const db = openArchive();
+        const result = await askArchive(db, args.question || args.q || '');
+        return ok({
+          answer: result.answer,
+          interpreted: result.interpreted,
+          rows: result.rows,
+          jobs: result.jobs,
+        });
       }
 
       case 'bookkeeping_review': {

@@ -25,6 +25,7 @@ import { durableSyncConfigured } from './src/lib/durableTokens.js';
 import { emailConfigured, defaultNotifyEmail } from './src/services/email.js';
 import { runBookkeepingNotify } from './src/services/bookkeepingNotify.js';
 import { importSherwinEmails } from './src/services/sherwinEmailImport.js';
+import { archiveEmailInvoices, mountArchive } from './src/http/archiveRoutes.js';
 
 const app = express();
 app.use(express.json());
@@ -34,7 +35,7 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, mcp-session-id, Accept, Last-Event-ID'
+    'Content-Type, Authorization, mcp-session-id, Accept, Last-Event-ID, x-archive-password'
   );
   res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
   if (req.method === 'OPTIONS') {
@@ -202,6 +203,8 @@ app.get('/', (_req, res) => {
   <li><a href="/oauth/start">Connect Jobber</a></li>
   <li><a href="/privacy">Privacy Policy</a></li>
   <li><a href="/terms">Terms / EULA</a></li>
+  <li><a href="/archive">Job search</a></li>
+  <li><a href="/onedrive/start">Connect OneDrive</a></li>
   <li><a href="/health">Health</a></li>
 </ul>`
     )
@@ -378,6 +381,7 @@ app.post('/sherwin/import', async (req, res) => {
       apply: Boolean(body.apply),
       limit: body.limit,
       includeSeen: Boolean(body.includeSeen),
+      onInvoices: body.apply ? archiveEmailInvoices : undefined,
     });
     res.status(result.ok ? 200 : 502).json(result);
   } catch (err) {
@@ -482,6 +486,8 @@ app.delete('/mcp', (_req, res) => {
     id: null,
   });
 });
+
+mountArchive(app);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
