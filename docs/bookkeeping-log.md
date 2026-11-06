@@ -10,6 +10,69 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-10-21 — Brief approvals (skip #1 and #2)
+
+Skipped, not posted: #1 CK #1485 $800 and #2 CK #1483 $1,285. Marked seen so they do not return on the next brief.
+
+| QBO id | Type | Date | Account | Category | Amount | Brief # |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18638 | Credit Card Credit | 2026-10-19 | CC-Capital One Spark (7296) | Car & Truck | 1.00 | 20 RBT-CASEYS |
+
+Banking: **Match** the Spark +$1.00 Casey's rebate to 18638. Do not add it again.
+
+Feed-only card charges, clear in the QBO Banking feed (do not post again):
+
+| Brief # | Date | Card | Description | Amount | Category |
+| --- | --- | --- | --- | --- | --- |
+| 3 | 2026-10-19 | 4558 | DE AUTOWASPLAATS | 13.00 | Car & Truck |
+| 4 | 2026-10-17 | 4558 | MENARDS DES MOINES IA | 813.68 | Job Supplies |
+| 5 | 2026-10-16 | 4558 | BURGER KING #27284 | 16.90 | Meals & Entertainment |
+| 6 | 2026-10-16 | 4558 | HOMEDEPOT.COM | 31.27 | Job Supplies |
+| 7 | 2026-10-16 | 4558 | HOMEDEPOT.COM | 458.18 | Job Supplies |
+| 8 | 2026-10-16 | 4558 | MENARDS ALTOONA IA | 86.65 | Job Supplies |
+| 9 | 2026-10-16 | 4558 | MENARDS ALTOONA IA | 746.26 | Job Supplies |
+| 10 | 2026-10-16 | 4558 | CASEYS #3566 | 9.64 | Car & Truck |
+| 11 | 2026-10-15 | 4558 | WENDY'S 4410 | 12.51 | Meals & Entertainment |
+| 12 | 2026-10-14 | 4558 | CASEYS #3566 | 83.43 | Car & Truck |
+| 13 | 2026-10-14 | 4558 | KWIK STAR #1727 | 116.35 | Car & Truck |
+| 14 | 2026-10-14 | 4558 | CASEYS #3214 | 108.33 | Car & Truck |
+| 15 | 2026-10-14 | 4558 | CASEYS #3214 | 1.81 | Car & Truck |
+| 16 | 2026-10-14 | 4558 | KWIK STAR #1727 | 106.39 | Car & Truck |
+| 17 | 2026-10-13 | 4558 | RIVERSIDE FAMILY RESTAURA | 10.53 | Meals & Entertainment |
+| 18 | 2026-10-12 | 4558 | MENARDS ALTOONA IA | 40.78 | Job Supplies |
+| 19 | 2026-10-19 | 7296 | Google One | 21.39 | Office Supplies & Software |
+| 21 | 2026-10-17 | 7296 | BREADEAUX PIZZA OF PEL | 36.13 | Meals & Entertainment |
+| 22 | 2026-10-17 | 7296 | THEISENSHOMEFARMAUTOPE | 44.90 | Job Supplies |
+| 23 | 2026-10-16 | 7296 | CASEYS #2694 | 131.98 | Car & Truck |
+| 24 | 2026-10-14 | 7296 | The Sherwin-Williams C | 5,473.62 | Job Supplies |
+
+## 2026-10-17 — Brief approvals (#3–#15; checks left alone)
+
+Checks #1 (1485, $800) and #2 (1483, $1,285) were not posted.
+
+| QBO id | Type | Date | Account | Category | Amount | Brief # |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18631 | Credit Card Credit | 2026-10-12 | CC-Capital One (4558) | Job Supplies | 64.67 | 10 MENARDS ALTOONA IA |
+| 18632 | Credit Card Credit | 2026-10-13 | CC-Capital One Spark (7296) | Car & Truck | 1.00 | 14 RBT-CASEYS |
+| 18633 | Credit Card Credit | 2026-10-13 | CC-Capital One Spark (7296) | Car & Truck | 0.20 | 15 RBT-CASEYS |
+| 18634 | Transfer | 2026-10-15 | Checking-Marion County Bank (3696) → CC-Capital One Spark (7296) | Transfer | 5,628.17 | 12 CAPITAL ONE AUTOPAY PYMT |
+
+Banking: **Match** the Menards credit, both Casey's rebates, and the Spark autopay feed line to these records. Do not add them again.
+
+Feed-only card charges, clear in the QBO Banking feed (do not post again):
+
+| Brief # | Date | Description | Amount | Category |
+| --- | --- | --- | --- | --- |
+| 3 | 2026-10-15 | WENDY'S 4410 | 12.51 | Meals & Entertainment |
+| 4 | 2026-10-14 | CASEYS #3566 | 83.43 | Car & Truck |
+| 5 | 2026-10-14 | KWIK STAR #1727 | 116.35 | Car & Truck |
+| 6 | 2026-10-14 | CASEYS #3214 | 108.33 | Car & Truck |
+| 7 | 2026-10-14 | CASEYS #3214 | 1.81 | Meals & Entertainment |
+| 8 | 2026-10-14 | KWIK STAR #1727 | 106.39 | Car & Truck |
+| 9 | 2026-10-13 | RIVERSIDE FAMILY RESTAURA | 10.53 | Meals & Entertainment |
+| 11 | 2026-10-12 | MENARDS ALTOONA IA | 40.78 | Job Supplies |
+| 13 | 2026-10-14 | The Sherwin-Williams C | 5,473.62 | Job Supplies |
+
 ## 2026-10-13 — Brief approvals (all except checks #2 and #3)
 
 | QBO id | Type | Date | Account | Category | Amount | Brief # |
