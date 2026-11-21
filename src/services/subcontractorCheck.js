@@ -29,11 +29,16 @@ function norm(value) {
     .trim();
 }
 
+const GENERIC_NAME = new Set(['drywall', 'painting', 'paint', 'construction', 'services', 'llc', 'inc']);
+
 function samePayee(a, b) {
   const left = norm(a);
   const right = norm(b);
   if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+  const words = right.split(' ').filter((word) => word.length >= 4 && !GENERIC_NAME.has(word));
+  const hay = new Set(left.split(' '));
+  return words.some((word) => hay.has(word));
 }
 
 function dayDiff(a, b) {

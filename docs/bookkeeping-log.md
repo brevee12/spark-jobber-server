@@ -10,6 +10,14 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-11-21 — Arturo Moreno check 1500
+
+Check 1500, written November 10, is the Lorens remodel hang. QuickBooks check 18985, $2,200, Contractors, memo 26101. Jobber already had the $2,200 Arturo expense on job 26101, so no second expense was added.
+
+## 2026-11-21 — Deluxe Drywall check 1501
+
+Check 1501, written November 13, is the Lorens remodel texture. QuickBooks check 18984, $750, Contractors, memo 26101. Jobber expense on job 26101.
+
 ## 2026-11-21 — Deluxe Drywall check 1499
 
 Check 1499, written November 5, matches the day Brennan was on the Clendenen kitchen ceiling. QuickBooks check 18983, $750, Contractors, memo 26069. Jobber expense on job 26069.

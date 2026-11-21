@@ -119,6 +119,15 @@ const older = planSubcontractorCheck({
 });
 assert(older.jobberAction === 'post', 'an older payment of the same amount is not this check');
 
+const already = planSubcontractorCheck({
+  check: { number: '1500', date: '2026-11-10', amount: 2200, payee: 'Arturo Moreno', bankAccountId: '35' },
+  vendor: { id: '998', name: 'Arturo Moreno', vendor1099: true },
+  qboRecords: [],
+  jobberExpenses: [{ title: 'Arturo', description: 'Hang/Finish drywall', total: 2200, date: '2026-11-12', jobNumber: 26101 }],
+  job: { jobId: 'job-2', jobNumber: 26101 },
+});
+assert(already.jobberAction === 'skip', 'a first name and the same amount that week is already entered');
+
 const preview = await recordSubcontractorCheck({
   payee: 'Deluxe Drywall',
   amount: 750,

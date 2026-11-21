@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Subcontractor checks.** A Jobber expense already entered under the subcontractor's first name is treated as the same check.
 - **Subcontractor checks.** A handwritten check is entered in QuickBooks under that vendor, in the same category as earlier checks, and on the Jobber job when the check names one. A check number already on the books is not entered again.
 - **QuickBooks tax settings.** Can read whether Automated Sales Tax is on, and an invoice now includes the Jobber tax rate and which lines are taxable.
 - **QuickBooks invoice tax.** Sales tax QuickBooks added on a Jobber invoice that has none can be removed, and only when that extra amount is the tax and the customer has not already paid it.
