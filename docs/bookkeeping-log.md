@@ -10,6 +10,10 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-11-21 — Deluxe Drywall check 1499
+
+Check 1499, written November 5, matches the day Brennan was on the Clendenen kitchen ceiling. QuickBooks check 18983, $750, Contractors, memo 26069. Jobber expense on job 26069.
+
 ## 2026-11-21 — Sales tax removed to match Jobber
 
 These Jobber invoices have no sales tax. QuickBooks Automated Sales Tax had added tax anyway. The lines were marked non-taxable so the QuickBooks total matches Jobber. Tax removed: **$1,219.40**.
