@@ -77,6 +77,9 @@ export const GET_INVOICE = `
         id
         name
       }
+      taxCalculationMethod
+      taxRate { id name label tax default qboTaxType }
+      taxDetails { totalTaxAmount totalTaxRate { name label tax qboTaxType } }
       lineItems(first: 50) {
         nodes {
           id
@@ -85,6 +88,8 @@ export const GET_INVOICE = `
           quantity
           unitPrice
           totalPrice
+          taxable
+          taxRate { id name label tax qboTaxType }
         }
       }
     }
@@ -1993,6 +1998,20 @@ const LIST_PRODUCTS = `
     }
   }
 `;
+
+const LIST_TAX_RATES = `
+  query TaxRates($first: Int!) {
+    taxRates(first: $first) {
+      nodes { id name label tax default description qboTaxType }
+    }
+  }
+`;
+
+/** Tax rates configured in Jobber, including which one is the default. */
+export async function listTaxRates() {
+  const data = await jobberGraphql(LIST_TAX_RATES, { first: 50 });
+  return data?.taxRates?.nodes || [];
+}
 
 /** Jobber Products & Services price book (all pages). */
 export async function listProducts({ searchTerm } = {}) {

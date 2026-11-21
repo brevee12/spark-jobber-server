@@ -480,6 +480,16 @@ export async function qboQuery(sql) {
   return data?.QueryResponse || {};
 }
 
+/** Automated Sales Tax and the company tax preference. Read only. */
+export async function getQboTaxSettings() {
+  const prefs = await qboQuery('SELECT * FROM Preferences');
+  const row = Array.isArray(prefs.Preferences) ? prefs.Preferences[0] : prefs.Preferences;
+  return {
+    taxPrefs: row?.TaxPrefs || null,
+    salesFormsPrefs: row?.SalesFormsPrefs || null,
+  };
+}
+
 /** One QuickBooks invoice by the number Jobber syncs into DocNumber. */
 export async function getQboInvoicesByDocNumber(docNumber) {
   const doc = String(docNumber || '').trim();

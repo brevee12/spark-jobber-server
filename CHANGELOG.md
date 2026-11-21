@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **QuickBooks tax settings.** Can read whether Automated Sales Tax is on, and an invoice now includes the Jobber tax rate and which lines are taxable.
 - **QuickBooks invoice tax.** Sales tax QuickBooks added on a Jobber invoice that has none can be removed, and only when that extra amount is the tax and the customer has not already paid it.
 - **Job search.** A password-protected page answers plain questions from Sherwin invoices and job numbers, including a misspelled product, and links the original PDF once OneDrive is connected. Older invoices load from a Sherwin CSV, uploaded PDFs, or QuickBooks bills. Nightly email import files each new PDF when OneDrive is connected.
 - **Quote on a different house.** A new client can have a mailing address and a separate job-site property. Quotes use that property. Client create no longer sends fields Jobber rejects, and a property or an internal client note can be added on its own. [#41](https://github.com/brevee12/spark-jobber-server/pull/41)

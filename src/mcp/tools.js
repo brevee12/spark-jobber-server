@@ -14,6 +14,7 @@ import {
   getQuote,
   introspectJobberSchema,
   listProducts,
+  listTaxRates,
   listUsers,
   listVisitsForDay,
   setVisitCrew,
@@ -62,6 +63,7 @@ import {
   postQboTransfer,
   deleteQboTransaction,
   getQboAccounts,
+  getQboTaxSettings,
   getQboCashSummary,
   getQboProfitAndLoss,
 } from '../services/qbo.js';
@@ -98,6 +100,7 @@ const JOBBER_OPS = [
   'delete_expense',
   'schedule_visit',
   'list_products',
+  'list_tax_rates',
   'list_users',
   'day_schedule',
   'set_visit_crew',
@@ -245,6 +248,10 @@ async function runJobberAction(action = {}) {
         assignedUserIds: action.assignedUserIds,
         allDay: action.allDay,
       });
+    }
+    case 'list_tax_rates': {
+      const rates = await listTaxRates();
+      return { count: rates.length, rates };
     }
     case 'list_products': {
       const products = await listProducts({ searchTerm: action.query });
@@ -1082,6 +1089,11 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'qbo_tax_settings',
+    description: 'Read QuickBooks sales tax preferences, including whether Automated Sales Tax is on. Does not change anything.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'clear_qbo_invoice_tax',
     description:
       'Remove QuickBooks sales tax that Jobber did not charge. Jobber is the source of truth. A QuickBooks invoice is changed only when its extra amount is the sales tax and the customer has not already paid more than the Jobber total. apply:false shows the plan. apply:true updates those invoices and marks the lines non-taxable.',
@@ -1137,6 +1149,10 @@ export async function callTool(name, args = {}) {
       case 'quote_meeting': {
         const meeting = await runQuoteMeeting(args);
         return ok(meeting);
+      }
+
+      case 'qbo_tax_settings': {
+        return ok(await getQboTaxSettings());
       }
 
       case 'clear_qbo_invoice_tax': {
