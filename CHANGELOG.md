@@ -13,6 +13,7 @@ merge date.
 
 ## Unreleased
 
+- **Subcontractor checks.** A handwritten check is entered in QuickBooks under that vendor, in the same category as earlier checks, and on the Jobber job when the check names one. A check number already on the books is not entered again.
 - **QuickBooks tax settings.** Can read whether Automated Sales Tax is on, and an invoice now includes the Jobber tax rate and which lines are taxable.
 - **QuickBooks invoice tax.** Sales tax QuickBooks added on a Jobber invoice that has none can be removed, and only when that extra amount is the tax and the customer has not already paid it.
 - **Job search.** A password-protected page answers plain questions from Sherwin invoices and job numbers, including a misspelled product, and links the original PDF once OneDrive is connected. Older invoices load from a Sherwin CSV, uploaded PDFs, or QuickBooks bills. Nightly email import files each new PDF when OneDrive is connected.

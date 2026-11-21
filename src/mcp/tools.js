@@ -32,6 +32,7 @@ import {
   listJobNotes,
   createJobNote,
   editJobNote,
+  listExpenses,
 } from '../../jobber/client.js';
 import {
   fetchSimpleFinTransactions,
@@ -51,6 +52,7 @@ import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
 import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
 import { clearQboInvoiceTax } from '../services/qboInvoiceTax.js';
+import { recordSubcontractorCheck } from '../services/subcontractorCheck.js';
 import { importSherwinEmails } from '../services/sherwinEmailImport.js';
 import { askArchive } from '../services/archiveSearch.js';
 import { openArchive } from '../services/jobArchive.js';
@@ -97,6 +99,7 @@ const JOBBER_OPS = [
   'create_quote',
   'update_quote',
   'create_expense',
+  'list_expenses',
   'delete_expense',
   'schedule_visit',
   'list_products',
@@ -225,6 +228,13 @@ async function runJobberAction(action = {}) {
         lineItems: action.lineItems,
         replaceLineItems: Boolean(action.replaceLineItems),
       });
+    }
+    case 'list_expenses': {
+      const expenses = await listExpenses({
+        searchTerm: action.query || action.searchTerm || action.payee,
+        limit: action.limit,
+      });
+      return { count: expenses.length, expenses };
     }
     case 'create_expense': {
       return createExpense({
@@ -840,6 +850,24 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'record_subcontractor_check',
+    description:
+      'Record a handwritten subcontractor check. QuickBooks gets a check to that vendor, using the same category as earlier checks to them, so it stays on the 1099. Jobber gets an expense only when a job number is given and that job exists. Refuses a duplicate check number or the same vendor, amount, and date. apply:false shows the plan and the earlier checks. apply:true writes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        payee: { type: 'string', description: 'Name on the check, matching the QuickBooks vendor' },
+        amount: { type: 'number' },
+        checkNumber: { type: 'string', description: 'Check number printed on the check' },
+        txnDate: { type: 'string', description: 'Date written on the check, YYYY-MM-DD' },
+        jobNumber: { type: 'string', description: 'Jobber job number, when the check names one' },
+        memo: { type: 'string' },
+        apply: { type: 'boolean', description: 'false (default) = plan only; true = write the check' },
+      },
+      required: ['payee', 'amount', 'checkNumber', 'txnDate'],
+    },
+  },
+  {
     name: 'qbo_create_expense',
     description:
       'WRITE to QuickBooks: create a Purchase (check/CC charge only — positive expense amounts). Never use for credit-card refunds/credits (positive amounts on a CC account) — use qbo_create_cc_credit. Requires its own Allow — do not batch with Jobber.',
@@ -1245,6 +1273,21 @@ export async function callTool(name, args = {}) {
       }
 
       // --- QBO writes (separate Allows) ---
+      case 'record_subcontractor_check': {
+        if (!args.payee || args.amount == null || !args.checkNumber || !args.txnDate) {
+          throw new Error('payee, amount, checkNumber, and txnDate are required');
+        }
+        return ok(await recordSubcontractorCheck({
+          payee: args.payee,
+          amount: args.amount,
+          checkNumber: args.checkNumber,
+          txnDate: args.txnDate,
+          jobNumber: args.jobNumber,
+          memo: args.memo,
+          apply: Boolean(args.apply),
+        }));
+      }
+
       case 'qbo_create_expense': {
         const created = await postQboExpense({
           paymentAccountId: args.paymentAccountId,

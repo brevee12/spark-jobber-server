@@ -654,6 +654,72 @@ export async function postQboExpense({
   };
 }
 
+/**
+ * Handwritten check already given to a vendor. DocNumber is the check number
+ * so the bank feed can match it, and the vendor is the 1099 payee.
+ */
+export async function postQboCheck({
+  paymentAccountId,
+  categoryAccountId,
+  vendorId,
+  vendorName,
+  amount,
+  txnDate,
+  checkNumber,
+  memo,
+}) {
+  const tokens = await getValidAccessToken();
+  if (!paymentAccountId) throw new Error('paymentAccountId is required');
+  if (!categoryAccountId) throw new Error('categoryAccountId is required');
+  if (!vendorId) throw new Error('vendorId is required');
+  if (!checkNumber) throw new Error('checkNumber is required');
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) throw new Error('amount must be a positive number');
+
+  const payload = {
+    PaymentType: 'Check',
+    AccountRef: { value: String(paymentAccountId) },
+    EntityRef: { value: String(vendorId), name: vendorName || undefined, type: 'Vendor' },
+    TxnDate: txnDate,
+    DocNumber: String(checkNumber),
+    PrintStatus: 'PrintComplete',
+    PrivateNote: memo || undefined,
+    Line: [
+      {
+        Amount: amt,
+        DetailType: 'AccountBasedExpenseLineDetail',
+        Description: memo || undefined,
+        AccountBasedExpenseLineDetail: {
+          AccountRef: { value: String(categoryAccountId) },
+        },
+      },
+    ],
+  };
+
+  const data = await qboRequest('POST', `/v3/company/${tokens.realmId}/purchase`, {
+    body: payload,
+  });
+  const purchase = data?.Purchase;
+  return {
+    id: purchase?.Id,
+    docNumber: purchase?.DocNumber || String(checkNumber),
+    totalAmt: purchase?.TotalAmt,
+    txnDate: purchase?.TxnDate,
+    payee: purchase?.EntityRef?.name || vendorName || null,
+    status: purchase?.Id ? 'created' : 'unknown',
+  };
+}
+
+/** Turn on 1099 tracking for a vendor that is already in QuickBooks. */
+export async function enableVendor1099({ vendorId, syncToken }) {
+  if (!vendorId || syncToken == null) throw new Error('vendorId and syncToken are required');
+  const tokens = await getValidAccessToken();
+  const data = await qboRequest('POST', `/v3/company/${tokens.realmId}/vendor`, {
+    body: { Id: String(vendorId), SyncToken: String(syncToken), sparse: true, Vendor1099: true },
+  });
+  return { id: data?.Vendor?.Id || vendorId, vendor1099: data?.Vendor?.Vendor1099 === true };
+}
+
 function shiftIsoDate(iso, days) {
   const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
