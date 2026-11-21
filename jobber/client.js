@@ -89,7 +89,6 @@ export const GET_INVOICE = `
           unitPrice
           totalPrice
           taxable
-          taxRate { id name label tax qboTaxType }
         }
       }
     }
