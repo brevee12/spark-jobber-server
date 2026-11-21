@@ -10,6 +10,23 @@ delete the record in QBO. Transfers: delete in QBO.
 **Adding entries:** after any approved write batch, the agent appends a section
 here (date, brief #, what, QBO ids) and commits it.
 
+## 2026-11-21 — Sales tax removed to match Jobber
+
+These Jobber invoices have no sales tax. QuickBooks Automated Sales Tax had added tax anyway. The lines were marked non-taxable so the QuickBooks total matches Jobber. Tax removed: **$1,219.40**.
+
+| QBO id | Invoice | Customer | Tax removed | QuickBooks total now | Balance now |
+| --- | --- | --- | --- | ---: | ---: |
+| 18809 | 25233 | Osky First Assembly of God | 42.00 | 6,025.00 | 0 |
+| 18863 | 25240 | Jason & Cossette Clendenen | 196.00 | 2,800.00 | 0 |
+| 18935 | 25243 | Cornie Van Den Broek | 50.40 | 907.00 | 0 |
+| 18972 | 25249 | Marvin & Betty Vander Molen | 38.50 | 550.00 | 0 |
+| 18974 | 25250 | Sheila Vander Leest | 14.00 | 243.52 | 0 |
+| 18980 | 25248 | Jason Van Gorp | 263.20 | 3,897.58 | 0 |
+| 18979 | 25246 | Lorens Construction | 472.50 | 6,750.00 | 6,750.00 |
+| 18981 | 25245 | George Blom | 142.80 | 2,464.08 | 2,464.08 |
+
+Adam Slings 25231 was left alone. QuickBooks shows it paid at $2,297.75, which is $143.85 above the Jobber total of $2,153.90. Removing the tax would make that payment larger than the invoice.
+
 ## 2026-10-13 — Brief approvals (all except checks #2 and #3)
 
 | QBO id | Type | Date | Account | Category | Amount | Brief # |
