@@ -480,6 +480,26 @@ export async function qboQuery(sql) {
   return data?.QueryResponse || {};
 }
 
+/** One QuickBooks invoice by the number Jobber syncs into DocNumber. */
+export async function getQboInvoicesByDocNumber(docNumber) {
+  const doc = String(docNumber || '').trim();
+  if (!/^\d{3,8}$/.test(doc)) {
+    throw new Error(`Invoice number ${docNumber} is not a QuickBooks doc number`);
+  }
+  const qr = await qboQuery(`SELECT * FROM Invoice WHERE DocNumber = '${doc}'`);
+  const rows = qr.Invoice || [];
+  return Array.isArray(rows) ? rows : [rows];
+}
+
+/** Replace a QuickBooks invoice. SyncToken must be the one just read. */
+export async function updateQboInvoice(invoice) {
+  const tokens = await getValidAccessToken();
+  const data = await qboRequest('POST', `/v3/company/${tokens.realmId}/invoice`, {
+    body: invoice,
+  });
+  return data?.Invoice || null;
+}
+
 function parsePoFromNote(note = '') {
   const text = String(note || '');
   // Sherwin PRO+ puts the Jobber job number in PO#. "Job: 1 VEENSTRA PAINTING"

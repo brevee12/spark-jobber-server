@@ -49,6 +49,7 @@ import { runBookkeepingNotify } from '../services/bookkeepingNotify.js';
 import { runQuoteMeeting } from './quoteMeeting.js';
 import { runCrewSchedule } from './crewSchedule.js';
 import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
+import { clearQboInvoiceTax } from '../services/qboInvoiceTax.js';
 import { importSherwinEmails } from '../services/sherwinEmailImport.js';
 import { askArchive } from '../services/archiveSearch.js';
 import { openArchive } from '../services/jobArchive.js';
@@ -1081,6 +1082,26 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'clear_qbo_invoice_tax',
+    description:
+      'Remove QuickBooks sales tax that Jobber did not charge. Jobber is the source of truth. A QuickBooks invoice is changed only when its extra amount is the sales tax and the customer has not already paid more than the Jobber total. apply:false shows the plan. apply:true updates those invoices and marks the lines non-taxable.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        docNumbers: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Jobber invoice numbers, which QuickBooks stores as DocNumber',
+        },
+        apply: {
+          type: 'boolean',
+          description: 'false (default) = plan only; true = remove the tax in QuickBooks',
+        },
+      },
+      required: ['docNumbers'],
+    },
+  },
+  {
     name: 'post_paint_job_expenses',
     description:
       'Post Sherwin-Williams QBO bills as Jobber expenses on the job whose job number is the PO# (for example 26086). Each expense notes how many gallons were bought, and a pinned job note shows the total gallons. A count is recorded only when the same product has an exact one-gallon price on another line; 5-gallon prices are not guessed. Jobber numbers jobs, quotes, requests, and invoices separately, so the PO is matched only to Job.jobNumber. POs like SHOP or a client name are skipped. apply:false shows the plan; apply:true writes the expenses and the gallon notes.',
@@ -1116,6 +1137,15 @@ export async function callTool(name, args = {}) {
       case 'quote_meeting': {
         const meeting = await runQuoteMeeting(args);
         return ok(meeting);
+      }
+
+      case 'clear_qbo_invoice_tax': {
+        const docs = Array.isArray(args.docNumbers) ? args.docNumbers : [];
+        if (!docs.length) throw new Error('docNumbers required');
+        return ok(await clearQboInvoiceTax({
+          docNumbers: docs,
+          apply: Boolean(args.apply),
+        }));
       }
 
       case 'post_paint_job_expenses': {
