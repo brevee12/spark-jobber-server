@@ -104,9 +104,20 @@ const applied = await recordSubcontractorCheck({
   saveExpense: async (body) => ({ id: 'exp-1', ...body }),
 });
 assert(applied.qbo.id === '77', 'check was written');
-assert(wrote.docNumber === undefined && wrote.checkNumber === '1499', 'check number is passed through');
+assert(wrote.checkNumber === '1499', 'check number is passed through');
+assert(wrote.memo === '26088', 'memo is the job number, matching earlier checks');
 assert(wrote.categoryAccountId === '80', 'category is the one from earlier checks');
 assert(applied.jobber.linkedJobId === 'job-1', 'expense is on the job');
+assert(applied.jobber.title === 'Deluxe Drywall', 'expense title is the vendor');
+
+const older = planSubcontractorCheck({
+  check: { number: '1499', date: '2026-11-05', amount: 750, payee: 'Deluxe Drywall', bankAccountId: '35' },
+  vendor,
+  qboRecords: prior,
+  jobberExpenses: [{ title: 'Deluxe Drywall', description: 'Texture', total: 750, date: '2025-09-11', jobNumber: 25068 }],
+  job: { jobId: 'job-1', jobNumber: 26088 },
+});
+assert(older.jobberAction === 'post', 'an older payment of the same amount is not this check');
 
 const preview = await recordSubcontractorCheck({
   payee: 'Deluxe Drywall',

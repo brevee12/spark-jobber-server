@@ -121,8 +121,9 @@ export function planSubcontractorCheck({
 
   const jobberHit = jobberExpenses.find((row) => {
     const text = `${row.title || ''} ${row.description || ''}`;
-    if (new RegExp(`\\b${number}\\b`).test(text)) return true;
-    return money(row.total) === amount && samePayee(text, payee);
+    if (number && new RegExp(`\\b${number}\\b`).test(text)) return true;
+    const dated = row.date && dayDiff(String(row.date).slice(0, 10), date) <= 7;
+    return dated && money(row.total) === amount && samePayee(text, payee);
   });
 
   let jobberAction = 'post';
@@ -314,7 +315,7 @@ export async function recordSubcontractorCheck({
       syncToken: found.vendor.syncToken,
     });
   }
-  const note = memo || `Check ${number} to ${found.vendor.name}`;
+  const note = memo || (job?.jobNumber ? String(job.jobNumber) : `Check ${number}`);
   result.qbo = await saveCheck({
     paymentAccountId: bank.id,
     categoryAccountId: plan.category.accountId,
@@ -328,8 +329,8 @@ export async function recordSubcontractorCheck({
   if (plan.jobberAction === 'post') {
     result.jobber = await saveExpense({
       amount: plan.check.amount,
-      title: `${found.vendor.name} check ${number}`,
-      description: note,
+      title: found.vendor.name,
+      description: job.title ? `${job.title} · job ${job.jobNumber}` : note,
       date,
       linkedJobId: job.jobId,
     });
