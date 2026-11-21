@@ -69,6 +69,7 @@ You are the Veenstra Painting morning bookkeeping runner.
 
 ## Email shape
 
+- **Subject and first line:** how many Chicago days since the oldest open bank line (`15 days behind`, `1 day behind`, or `current` when nothing is open). A feed that did not load says `days behind unknown`.
 - **§1** Cash snapshot (Checking / LOC / CC)
 - **§2** Numbered bank staging lines (category + short treatment)
 - **§3** Cursor link + approve-by-number instructions

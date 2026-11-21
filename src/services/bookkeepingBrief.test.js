@@ -1,7 +1,7 @@
 /**
  * Run: node src/services/bookkeepingBrief.test.js
  */
-import { formatBookkeepingBrief, listStagingItems } from './bookkeepingBrief.js';
+import { booksBehind, formatBookkeepingBrief, listStagingItems } from './bookkeepingBrief.js';
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -76,7 +76,10 @@ const brief = formatBookkeepingBrief(review, {
   agentUrl: 'https://cursor.com/agents/example',
 });
 
-assert(/Bookkeeping brief 2026-10-07/.test(brief.subject), 'subject has date');
+assert(/Bookkeeping brief 2026-10-07 — 15 days behind — 3 staged lines/.test(brief.subject), 'subject has date and lag');
+assert(brief.text.startsWith('15 days behind — oldest open line 2026-09-22.'), 'first line is the lag');
+assert(brief.html.includes('15 days behind'), 'html leads with the lag');
+assert(brief.behind?.days === 15, 'behind days');
 assert(brief.itemCount === 3, 'itemCount');
 assert(brief.groups?.length === 2, 'two account subsections');
 assert(brief.text.includes('§1 Cash snapshot'), '§1');
@@ -102,6 +105,26 @@ const empty = formatBookkeepingBrief({
   qbo: {},
   errors: [],
 });
-assert(/no new bank lines/i.test(empty.subject), 'empty subject');
+assert(/current — no new bank lines/i.test(empty.subject), 'empty subject is current');
+assert(empty.text.startsWith('Current — no open bank lines.'), 'empty first line');
+
+const lateUtc = formatBookkeepingBrief(
+  {
+    generatedAt: '2026-10-08T03:00:00.000Z',
+    bankFeed: {
+      transactions: [{ date: '2026-10-07', accountName: 'Checking', amount: '-1', description: 'X' }],
+    },
+    qbo: {},
+    errors: [],
+  }
+);
+assert(lateUtc.behind.today === '2026-10-07', 'brief date is Chicago, not UTC');
+assert(/current/.test(lateUtc.subject), 'same Chicago day is current');
+
+const unknown = booksBehind({
+  generatedAt: '2026-10-07T12:00:00.000Z',
+  errors: [{ section: 'bankFeed', error: 'down' }],
+});
+assert(unknown.label === 'days behind unknown', 'failed feed is not current');
 
 console.log('bookkeepingBrief.test.js: all assertions passed');

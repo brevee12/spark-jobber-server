@@ -25,6 +25,56 @@ function fmtDate(d) {
   return String(d).slice(0, 10);
 }
 
+/** Calendar date in America/Chicago (the books' zone), YYYY-MM-DD. */
+export function chicagoDate(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+function calendarDaysBetween(earlier, later) {
+  const a = Date.parse(`${earlier}T00:00:00Z`);
+  const b = Date.parse(`${later}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+/**
+ * How far the open bank lines lag today.
+ * Days are Chicago calendar days from the oldest staged line to the brief date.
+ * No open lines means the books are current. A missing feed is unknown, not current.
+ */
+export function booksBehind(review = {}, opts = {}) {
+  const today = chicagoDate(opts.asOf || review.generatedAt || new Date().toISOString());
+  const bankError = (review.errors || []).some((e) => e.section === 'bankFeed' && !review.bankFeed);
+  if (!review.bankFeed || bankError) {
+    return { days: null, today, oldest: null, label: 'days behind unknown' };
+  }
+  const dates = (review.bankFeed.transactions || [])
+    .map((tx) => fmtDate(tx.date))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  if (!dates.length) {
+    return { days: 0, today, oldest: null, label: 'current' };
+  }
+  const oldest = dates.reduce((a, b) => (a < b ? a : b));
+  const days = Math.max(0, calendarDaysBetween(oldest, today) ?? 0);
+  const label = days === 0 ? 'current' : days === 1 ? '1 day behind' : `${days} days behind`;
+  return { days, today, oldest, label };
+}
+
+function behindLead(behind) {
+  if (behind.days == null) return 'Days behind unknown — the bank feed did not load.';
+  if (behind.oldest) {
+    return `${behind.label} — oldest open line ${behind.oldest}.`;
+  }
+  return 'Current — no open bank lines.';
+}
+
 function shortTreatment(tx) {
   const t = String(tx.treatment || '').trim();
   if (!t) return '';
@@ -211,17 +261,20 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   const truncated = allItems.length - items.length;
   const groups = groupItemsByAccount(items);
   const generatedAt = review.generatedAt || new Date().toISOString();
-  const day = generatedAt.slice(0, 10);
+  const behind = booksBehind(review, { asOf: generatedAt });
+  const day = behind.today || generatedAt.slice(0, 10);
   const cashLines = formatCashLines(review.qbo?.cashBalances);
   const errors = Array.isArray(review.errors) ? review.errors : [];
   const sherwinCount = review.qbo?.sherwinBills?.count;
-
-  const subject =
+  const countLabel =
     items.length === 0
-      ? `Bookkeeping brief ${day} — no new bank lines`
-      : `Bookkeeping brief ${day} — ${items.length} staged line${items.length === 1 ? '' : 's'} (${groups.length} account${groups.length === 1 ? '' : 's'})`;
+      ? 'no new bank lines'
+      : `${items.length} staged line${items.length === 1 ? '' : 's'} (${groups.length} account${groups.length === 1 ? '' : 's'})`;
+
+  const subject = `Bookkeeping brief ${day} — ${behind.label} — ${countLabel}`;
 
   const textParts = [];
+  textParts.push(behindLead(behind));
   textParts.push(`Veenstra Painting — bookkeeping brief`);
   textParts.push(`Generated: ${generatedAt}`);
   textParts.push('');
@@ -333,6 +386,7 @@ export function formatBookkeepingBrief(review = {}, opts = {}) {
   const html = `<!DOCTYPE html>
 <html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111;max-width:52rem">
 <h1 style="font-size:1.25rem;margin:0 0 .5rem">Veenstra Painting — bookkeeping brief</h1>
+<p style="margin:0 0 .35rem;font-size:1.05rem"><strong>${esc(behindLead(behind))}</strong></p>
 <p style="margin:0 0 1rem;color:#555">Generated ${esc(generatedAt)}</p>
 <h2 style="font-size:1.05rem">§1 Cash snapshot</h2>
 ${cashHtml}
@@ -362,5 +416,6 @@ ${warnHtml}
     groups,
     agentUrl: agentUrl || null,
     generatedAt,
+    behind,
   };
 }
