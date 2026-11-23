@@ -2048,6 +2048,45 @@ const LIST_USERS = `
   }
 `;
 
+const USER_TIMESHEETS = `
+  query UserTimesheets($first: Int!, $after: String, $filter: TimeSheetEntriesFilterAttributes) {
+    timeSheetEntries(first: $first, after: $after, filter: $filter) {
+      nodes { id startAt finalDuration labourRate payable }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/** Payable and non-payable timesheet rows for one user. */
+export async function listUserTimesheets({ userId, start, end } = {}) {
+  if (!userId) throw new Error('userId is required');
+  const filter = { assignedTo: String(userId) };
+  if (start || end) {
+    filter.startAt = {};
+    if (start) filter.startAt.after = `${String(start).slice(0, 10)}T00:00:00Z`;
+    if (end) filter.startAt.before = `${String(end).slice(0, 10)}T23:59:59Z`;
+  }
+  const out = [];
+  let after = null;
+  for (let page = 0; page < 40; page += 1) {
+    const data = await jobberGraphql(USER_TIMESHEETS, { first: 100, after, filter });
+    const conn = data?.timeSheetEntries;
+    for (const row of conn?.nodes || []) {
+      const seconds = Number(row.finalDuration) || 0;
+      out.push({
+        id: row.id,
+        startAt: row.startAt,
+        hours: Math.round((seconds / 3600) * 100) / 100,
+        labourRate: row.labourRate == null ? null : Number(row.labourRate),
+        payable: row.payable === true,
+      });
+    }
+    if (!conn?.pageInfo?.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  return out;
+}
+
 /** Active Jobber team members (crew). */
 export async function listUsers() {
   const data = await jobberGraphql(LIST_USERS, { first: 100 });

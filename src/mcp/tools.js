@@ -53,6 +53,7 @@ import { runCrewSchedule } from './crewSchedule.js';
 import { applySherwinInvoiceGallons, postPaintJobExpenses } from '../services/paintJobExpenses.js';
 import { clearQboInvoiceTax } from '../services/qboInvoiceTax.js';
 import { recordSubcontractorCheck } from '../services/subcontractorCheck.js';
+import { workerWages } from '../services/workerWages.js';
 import { importSherwinEmails } from '../services/sherwinEmailImport.js';
 import { askArchive } from '../services/archiveSearch.js';
 import { openArchive } from '../services/jobArchive.js';
@@ -850,6 +851,19 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'worker_wages',
+    description:
+      'Read one worker’s gross pay. Uses QuickBooks payroll journals when the employee is named on them, and Jobber payable hours times the labour rate otherwise. Does not change anything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Worker name, for example Sean Dougherty' },
+        start: { type: 'string', description: 'First date to include, YYYY-MM-DD. Default 2025-01-01' },
+      },
+      required: ['name'],
+    },
+  },
+  {
     name: 'record_subcontractor_check',
     description:
       'Record a handwritten subcontractor check. QuickBooks gets a check to that vendor, using the same category as earlier checks to them, so it stays on the 1099. Jobber gets an expense only when a job number is given and that job exists. Refuses a duplicate check number or the same vendor, amount, and date. apply:false shows the plan and the earlier checks. apply:true writes.',
@@ -1273,6 +1287,11 @@ export async function callTool(name, args = {}) {
       }
 
       // --- QBO writes (separate Allows) ---
+      case 'worker_wages': {
+        if (!args.name) throw new Error('name is required');
+        return ok(await workerWages({ name: args.name, start: args.start }));
+      }
+
       case 'record_subcontractor_check': {
         if (!args.payee || args.amount == null || !args.checkNumber || !args.txnDate) {
           throw new Error('payee, amount, checkNumber, and txnDate are required');
